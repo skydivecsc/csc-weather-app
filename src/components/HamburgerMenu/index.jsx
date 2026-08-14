@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useContext } from "react";
 import { WeatherContext } from "../../context/WeatherContext";
+import { LOGIN_BASE_URL } from "../../config";
 import "./hamburger.css";
 
 function HamburgerMenu() {
@@ -80,7 +81,7 @@ function HamburgerMenu() {
   };
 
   const handleLogin = () => {
-    window.location.href = 'https://login.cscwx.com/'
+    window.location.href = `${LOGIN_BASE_URL}/`
   }
 
   const handleHelp = () => {

@@ -1,4 +1,5 @@
 import { useEffect, useState, createContext } from "react";
+import { LOGIN_BASE_URL } from "../config";
 
 export const LoadContext = createContext();
 
@@ -9,7 +10,7 @@ const LoadProvider = (props) => {
     const [displayTandem, setDisplayTandem] = useState(localStorage.getItem('displayTandem') || 'true')
 
     const getLoads = async () => {
-        const res = await fetch("https://login.cscwx.com/api/loads/")
+        const res = await fetch(`${LOGIN_BASE_URL}/api/loads/`)
         const data = await res.json()
         if (data.loads) {
             setLoads(data.loads)

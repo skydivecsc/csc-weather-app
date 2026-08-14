@@ -1,5 +1,6 @@
 import { useEffect, useState, createContext } from "react";
 import { w3cwebsocket as WebSocket } from "websocket";
+import { LOGIN_BASE_URL } from "../config";
 
 export const WeatherContext = createContext();
 
@@ -72,7 +73,7 @@ const WindSpeedProvider = (props) => {
   let windData = [];
 
   const getWind = async () => {
-    const res = await fetch("https://login.cscwx.com/api/weather/gusts");
+    const res = await fetch(`${LOGIN_BASE_URL}/api/weather/gusts`);
     const resArr = await res.json();
     if (!resArr.length) {
       setGustData([{ error: "no gust data found" }]);
@@ -82,7 +83,7 @@ const WindSpeedProvider = (props) => {
   };
 
   const getAloft = async () => {
-    const res = await fetch("https://login.cscwx.com/api/weather/aloft");
+    const res = await fetch(`${LOGIN_BASE_URL}/api/weather/aloft`);
     let winds = await res.json();
 
     if (!winds.direction) {
@@ -103,7 +104,7 @@ const WindSpeedProvider = (props) => {
   };
 
   const getJumprun = async () => {
-    const res = await fetch("https://login.cscwx.com/api/jumpruns/");
+    const res = await fetch(`${LOGIN_BASE_URL}/api/jumpruns/`);
     const data = await res.json();
 
     if (data.jumpruns) {
@@ -128,7 +129,7 @@ const WindSpeedProvider = (props) => {
 
   const getAstronomy = async () => {
     const res = await fetch(
-      "https://login.cscwx.com/api/weather/astronomy"
+      `${LOGIN_BASE_URL}/api/weather/astronomy`
     );
     const data = await res.json();
     if (data.results) {

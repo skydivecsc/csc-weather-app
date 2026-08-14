@@ -1,5 +1,6 @@
 import { useContext } from "react";
 import { WeatherContext } from "../../context/WeatherContext";
+import { PUBLIC_SITE_LABEL } from "../../config";
 import './loadingfooter.css'
 
 function FooterLoadingArea() {
@@ -7,7 +8,7 @@ function FooterLoadingArea() {
 
   return (
     <div className="footer-jumprun-loading">
-      <div className="loading-footer-content">www.cscwx.com</div>
+      <div className="loading-footer-content">{PUBLIC_SITE_LABEL}</div>
 
       {jumpruns[0]?.beerLight ? (
         <span className="yellow weather-hold" id="loading-footer-light">
