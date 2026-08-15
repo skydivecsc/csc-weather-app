@@ -444,6 +444,18 @@ const WindSpeedProvider = (props) => {
         }
       }
     };
+
+    return () => {
+      websocket.onopen = null;
+      websocket.onmessage = null;
+
+      if (
+        websocket.readyState === WebSocket.CONNECTING ||
+        websocket.readyState === WebSocket.OPEN
+      ) {
+        websocket.close();
+      }
+    };
   }, []);
 
   return (
