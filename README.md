@@ -1,5 +1,9 @@
 # CSC Weather APP
 
+> Staging work belongs on `cscwx2-staging` and is tested at
+> [cscwx2.com](https://cscwx2.com). The `main` branch serves production and is
+> not part of the staging modernization workflow.
+
 CSC WX APP is a commercial app developed for Chicagoland Skydiving Center. This app is currently being used live heavily by both employees and customers to make important safety decisions.
 
 ## Technologies Used
