@@ -1,5 +1,5 @@
 import { useEffect, useState, useContext } from "react";
-import { WeatherContext } from "../../context/WeatherContext";
+import { WeatherContext } from "../../context/WeatherContextValue";
 import "./time.css";
 
 function GetCst() {
@@ -9,14 +9,26 @@ function GetCst() {
 
   const { timeFormat } = useContext(WeatherContext);
 
-  let options;
-
   useEffect(() => {
-    if (timeFormat === "true") {
-      options = { timeZone: "America/Chicago", hour12: true };
-    } else {
-      options = { timeZone: "America/Chicago", hour12: false };
-    }
+    const options = {
+      timeZone: "America/Chicago",
+      hour12: timeFormat === "true",
+    };
+
+    const updateDateTime = () => {
+      const now = new Date().toLocaleString("en-US", options);
+      const [date, newTime] = now.split(",");
+      setTime(newTime);
+
+      const newDate = date.split("/");
+      newDate.pop();
+      const today = newDate.join("/");
+      setCurrentDate(today);
+
+      const getDay = new Date();
+      setCurrentDay(getDay.toString().split(" ")[0]);
+    };
+
     updateDateTime();
 
     const timeInt = setInterval(updateDateTime, 1000);
@@ -25,22 +37,6 @@ function GetCst() {
       clearInterval(timeInt);
     };
   }, [timeFormat]);
-
-  function updateDateTime() {
-    const now = new Date().toLocaleString("en-US", options);
-    const [date, newTime] = now.split(",");
-    setTime(newTime);
-
-    const newDate = date.split("/");
-    newDate.pop();
-    const today = newDate.join("/");
-    setCurrentDate(today);
-
-    const getDay = new Date();
-    setCurrentDay(getDay.toString().split(" ")[0]);
-
-    return;
-  }
 
   return (
     <div className="time-component">

@@ -1,5 +1,5 @@
 import { useContext } from "react";
-import { WeatherContext } from "../../context/WeatherContext";
+import { WeatherContext } from "../../context/WeatherContextValue";
 import redLight from "../../images/redlight.png";
 import yellowLight from "../../images/yellowlight.png";
 import greenLight from "../../images/greenlight.png";

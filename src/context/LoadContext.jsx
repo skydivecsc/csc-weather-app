@@ -1,9 +1,8 @@
-import { useEffect, useState, createContext } from "react";
+import { useEffect, useState } from "react";
 import { LOGIN_BASE_URL } from "../config";
+import { LoadContext } from "./LoadContextValue";
 
-export const LoadContext = createContext();
-
-const LoadProvider = (props) => {
+const LoadProvider = ({ children }) => {
     const [loads, setLoads] = useState([])
     const [displaySport, setDisplaySport] = useState(localStorage.getItem('displaySport') || 'true')
     const [displayStudent, setDisplayStudent] = useState(localStorage.getItem('displayStudent') || 'true')
@@ -24,13 +23,14 @@ const LoadProvider = (props) => {
     }
 
     useEffect(() => {
-        getLoads();
+        const initialLoadTimeout = setTimeout(getLoads, 0);
 
         const fiveSecondInterval = setInterval(() => {
             getLoads();
         }, 5000)
 
         return () => {
+            clearTimeout(initialLoadTimeout)
             clearInterval(fiveSecondInterval)
         }
     }, [])
@@ -38,7 +38,7 @@ const LoadProvider = (props) => {
 
     return (
         <LoadContext.Provider value={{loads, displaySport, displayStudent, displayTandem, setDisplaySport, setDisplayStudent, setDisplayTandem}}>
-            {props.children}
+            {children}
         </LoadContext.Provider>
     )
 }

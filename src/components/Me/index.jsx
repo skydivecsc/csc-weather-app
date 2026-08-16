@@ -1,5 +1,5 @@
 import { useContext, useState } from "react";
-import { WeatherContext } from "../../context/WeatherContext";
+import { WeatherContext } from "../../context/WeatherContextValue";
 import { isWithinSelectedLimits } from "./safety";
 import './mycsc.css'
 

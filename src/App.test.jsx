@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it, vi } from "vitest";
 import App from "./App";
-import { WeatherContext } from "./context/WeatherContext";
+import { WeatherContext } from "./context/WeatherContextValue";
 
 vi.mock("./components/Footer", () => ({
   default: () => <div data-testid="footer">Footer</div>,

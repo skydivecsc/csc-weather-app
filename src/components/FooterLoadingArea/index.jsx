@@ -1,5 +1,5 @@
 import { useContext } from "react";
-import { WeatherContext } from "../../context/WeatherContext";
+import { WeatherContext } from "../../context/WeatherContextValue";
 import { PUBLIC_SITE_LABEL } from "../../config";
 import './loadingfooter.css'
 

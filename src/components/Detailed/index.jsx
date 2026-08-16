@@ -1,5 +1,5 @@
 import { useContext } from "react";
-import { WeatherContext } from "../../context/WeatherContext";
+import { WeatherContext } from "../../context/WeatherContextValue";
 import { NavLink } from "react-router";
 import fb from "../../images/fb.png";
 import ig from "../../images/ig.png";

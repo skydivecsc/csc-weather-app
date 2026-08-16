@@ -1,4 +1,4 @@
-import { WeatherContext } from "../../context/WeatherContext";
+import { WeatherContext } from "../../context/WeatherContextValue";
 import { useContext } from "react";
 import { formatLocalTime, formatLocalTime24, getCurrentLocalTime } from "../utils";
 
