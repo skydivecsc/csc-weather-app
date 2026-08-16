@@ -1,5 +1,4 @@
 import { useEffect, useState, useContext } from "react";
-import { NavLink } from "react-router-dom";
 import { WeatherContext } from "../../context/WeatherContext";
 import "./webcam.css";
 
