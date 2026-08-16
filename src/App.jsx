@@ -1,5 +1,5 @@
 import { Route, Routes, useLocation } from "react-router";
-import { WeatherContext } from "./context/WeatherContext";
+import { WeatherContext } from "./context/WeatherContextValue";
 import { useContext } from "react";
 import Footer from "./components/Footer";
 import FooterLoadingArea from "./components/FooterLoadingArea";

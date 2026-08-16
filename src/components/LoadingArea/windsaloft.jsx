@@ -1,4 +1,4 @@
-import { WeatherContext } from "../../context/WeatherContext";
+import { WeatherContext } from "../../context/WeatherContextValue";
 import { useContext } from "react";
 import AloftIsValid from "../AloftIsValid";
 import { calculateTemperatureColor } from "../utils";
@@ -41,7 +41,7 @@ function WindsAloftLoading() {
                   className={darkTheme === "true" ? "table" : "table-light"}
                   key={altitudeKey}
                 >
-                  <td>{altitude}'</td>
+                  <td>{`${altitude}'`}</td>
                   <td>
                     {directions[altitudeKey]}º{" "}
                     <i

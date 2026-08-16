@@ -1,5 +1,5 @@
 import { useContext } from "react";
-import { WeatherContext } from "../../context/WeatherContext";
+import { WeatherContext } from "../../context/WeatherContextValue";
 import GustChart from "../Gusts";
 import WindsAloftLoading from "./windsaloft";
 import arrow from "../../images/arrow.png";

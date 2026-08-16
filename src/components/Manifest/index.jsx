@@ -1,6 +1,6 @@
 import { useContext, useState } from "react";
-import { LoadContext } from "../../context/LoadContext";
-import { WeatherContext } from "../../context/WeatherContext";
+import { LoadContext } from "../../context/LoadContextValue";
+import { WeatherContext } from "../../context/WeatherContextValue";
 import LoadingDots from "../LoadingDots";
 import "./manifest.css";
 

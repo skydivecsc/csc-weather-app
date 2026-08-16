@@ -1,64 +1,30 @@
-// eslint-disable-next-line
-import Chart from 'chart.js/auto';
+import 'chart.js/auto';
 import { Line } from 'react-chartjs-2'
 import 'chartjs-plugin-annotation';
-import { useContext, useEffect, useState } from 'react';
-import { WeatherContext } from '../../context/WeatherContext';
+import { useContext } from 'react';
+import { WeatherContext } from '../../context/WeatherContextValue';
 import LoadingDots from '../LoadingDots';
 import './gusts.css'
 
 function GustChart() {
     const { gustData, darkTheme, speedUnit, timeFormat } = useContext(WeatherContext)
-    const [times, setTimes] = useState([])
-    const [speeds, setSpeeds] = useState([])
-    const [gusts, setGusts] = useState([])
-
-
-    useEffect(() => {
-        let options;
-        if (timeFormat === "true") {
-            options = { timeZone: 'America/Chicago', hour: 'numeric', minute: '2-digit', hour12: true};
-          } else {
-            options = { timeZone: 'America/Chicago', hour: 'numeric', minute: '2-digit', hour12: false};
-          }
-
-        const timeStamps = gustData.map(gust => {
-            const timeObj = new Date(gust.received_time)
-            const localTime = timeObj.toLocaleTimeString('en-US', options).split(' ')[0]
-            return localTime
-        })
-
-        const windSpeeds = gustData.map(wind => {
-            let speed;
-            if (window.location.pathname === '/loadingarea') {
-                speed = wind.wind_speed
-                return speed
-            }
-            if (speedUnit === 'true') {
-            speed = wind.wind_speed
-            } else {
-                speed = Math.round(wind.wind_speed * 1.151)
-            }
-            return speed
-        })
-        const gustSpeeds = gustData.map(wind => {
-            let speed;
-            if (window.location.pathname === '/loadingarea') {
-                speed = wind.gust_speed
-                return speed
-            }
-            if (speedUnit === 'true') {
-            speed = wind.gust_speed
-            } else {
-                speed = Math.round(wind.gust_speed * 1.151)
-            }
-            return speed
-        })
-        setTimes(timeStamps)
-        setSpeeds(windSpeeds)
-        setGusts(gustSpeeds)
-
-    }, [gustData, speedUnit, timeFormat])
+    const options = {
+        timeZone: 'America/Chicago',
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: timeFormat === 'true',
+    };
+    const useKnots = window.location.pathname === '/loadingarea' || speedUnit === 'true';
+    const times = gustData.map(gust => {
+        const timeObj = new Date(gust.received_time)
+        return timeObj.toLocaleTimeString('en-US', options).split(' ')[0]
+    })
+    const speeds = gustData.map(wind =>
+        useKnots ? wind.wind_speed : Math.round(wind.wind_speed * 1.151)
+    )
+    const gusts = gustData.map(wind =>
+        useKnots ? wind.gust_speed : Math.round(wind.gust_speed * 1.151)
+    )
 
 
     const data = {

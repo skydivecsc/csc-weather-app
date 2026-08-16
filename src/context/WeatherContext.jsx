@@ -1,9 +1,8 @@
-import { useEffect, useState, createContext } from "react";
+import { useEffect, useState } from "react";
 import { LOGIN_BASE_URL } from "../config";
+import { WeatherContext } from "./WeatherContextValue";
 
-export const WeatherContext = createContext();
-
-const WindSpeedProvider = (props) => {
+const WindSpeedProvider = ({ children }) => {
   const [speed, setSpeed] = useState(0);
   const [gustSpeed, setGustSpeed] = useState(null);
   const [direction, setDirection] = useState(0);
@@ -46,8 +45,6 @@ const WindSpeedProvider = (props) => {
   const [sunset24, setSunset24] = useState(null);
   const [sunrise24, setSunrise24] = useState(null);
   const [twilight24, setTwilight24] = useState(null);
-  const [maxGust, setMaxGust] = useState(null);
-  const [maxSpeed, setMaxSpeed] = useState(null);
   const [variableDirection1, setVariableDirection1] = useState("");
   const [variableDirection2, setVariableDirection2] = useState("");
   const [jumpruns, setJumpruns] = useState([]);
@@ -67,9 +64,15 @@ const WindSpeedProvider = (props) => {
     localStorage.getItem("timeFormat") || "true"
   );
 
-  //necessary for websocket to function correctly and stay alive, don't use state
-  let weatherData = [];
-  let windData = [];
+  const historicalMaxGust = gustData[0]?.error
+    ? 0
+    : Math.max(...gustData.map((gust) => gust.gust_speed));
+  const historicalMaxSpeed = gustData[0]?.error
+    ? 0
+    : Math.max(...gustData.map((gust) => gust.wind_speed));
+  const maxGust =
+    historicalMaxGust < gustSpeed ? gustSpeed : historicalMaxGust;
+  const maxSpeed = historicalMaxSpeed < speed ? speed : historicalMaxSpeed;
 
   const getWind = async () => {
     const res = await fetch(`${LOGIN_BASE_URL}/api/weather/gusts`);
@@ -179,10 +182,12 @@ const WindSpeedProvider = (props) => {
   };
 
   useEffect(() => {
-    getJumprun();
-    getWind();
-    getAloft();
-    getAstronomy();
+    const initialRequestTimeout = setTimeout(() => {
+      getJumprun();
+      getWind();
+      getAloft();
+      getAstronomy();
+    }, 0);
 
     const thirtySecondInterval = setInterval(() => {
       getJumprun();
@@ -198,36 +203,12 @@ const WindSpeedProvider = (props) => {
     }, 600000);
 
     return () => {
+      clearTimeout(initialRequestTimeout);
       clearInterval(thirtySecondInterval);
       clearInterval(threeMinuteInterval);
       clearInterval(tenMinuteInterval);
     };
   }, []);
-
-  useEffect(() => {
-    let maxGust, maxSpeed;
-
-    if (gustData[0]?.error) {
-      maxGust = 0;
-      maxSpeed = 0;
-    } else {
-      const maxGustArr = gustData.map((gust) => gust.gust_speed);
-      const maxSpeedArr = gustData.map((gust) => gust.wind_speed);
-      maxGust = Math.max(...maxGustArr);
-      maxSpeed = Math.max(...maxSpeedArr);
-    }
-
-    if (maxGust < gustSpeed) {
-      setMaxGust(gustSpeed);
-    } else {
-      setMaxGust(maxGust);
-    }
-    if (maxSpeed < speed) {
-      setMaxSpeed(speed);
-    } else {
-      setMaxSpeed(maxSpeed);
-    }
-  }, [gustData, speed, gustSpeed]);
 
   useEffect(() => {
     const weatherQuery = `
@@ -294,10 +275,7 @@ const WindSpeedProvider = (props) => {
       }
 
       if (res.id === "wind" && res.payload) {
-        windData = [];
-        windData.push(res.payload);
-
-        const wind = windData[0].data.wind;
+        const wind = res.payload.data.wind;
 
         setVariableDirection1(wind?.variableDirection?.[0] || "");
         setVariableDirection2(wind?.variableDirection?.[1] || "");
@@ -307,10 +285,7 @@ const WindSpeedProvider = (props) => {
       }
 
       if (res.id === "weather" && res.payload) {
-        weatherData = [];
-        weatherData.push(res.payload);
-
-        const weather = weatherData[0].data.weather;
+        const weather = res.payload.data.weather;
 
         setPressure(weather?.altimeterSetting || null);
         setDensityAlt(weather?.densityAltitude || null);
@@ -514,7 +489,7 @@ const WindSpeedProvider = (props) => {
         setTimeFormat,
       }}
     >
-      {props.children}
+      {children}
     </WeatherContext.Provider>
   );
 };
