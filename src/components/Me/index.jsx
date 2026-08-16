@@ -1,5 +1,6 @@
-import { useContext, useEffect, useState } from "react";
+import { useContext, useState } from "react";
 import { WeatherContext } from "../../context/WeatherContext";
+import { isWithinSelectedLimits } from "./safety";
 import './mycsc.css'
 
 function Me() {
@@ -15,9 +16,17 @@ function Me() {
   const [userLicense, setUserLicense] = useState(
     localStorage.getItem("userLicense") || ""
   );
-  const [isSafe, setIsSafe] = useState(
-    !(speed > 25 || gustSpeed > 25 || maxSpeed > 25 || maxGust > 25)
-  );
+
+  const isSafe = isWithinSelectedLimits({
+    gustSpeed,
+    maxGust,
+    maxSpeed,
+    speed,
+    userDif,
+    userLicense,
+    userMaxGust,
+    userMaxSpeed,
+  });
 
   const handleLicense = (e) => {
     setUserLicense(e.target.value);
@@ -44,72 +53,11 @@ function Me() {
     setUserMaxSpeed("");
     setUserDif("");
     setUserLicense("");
-    setIsSafe(!(speed > 25 || gustSpeed > 25 || maxSpeed > 25 || maxGust > 25));
     localStorage.removeItem("userLicense");
     localStorage.removeItem("userMaxSpeed");
     localStorage.removeItem("userMaxGust");
     localStorage.removeItem("userDif");
   };
-
-  useEffect(() => {
-    if (
-      (userLicense || userMaxSpeed || userMaxGust || userDif) &&
-      (speed > 25 || gustSpeed > 25 || maxSpeed > 25 || maxGust > 25)
-    ) {
-      setIsSafe(false);
-    }
-
-    if (
-      (userLicense === "A" &&
-        speed !== null &&
-        (speed > 17 || gustSpeed > 17 || maxSpeed > 17 || maxGust > 17)) ||
-      (userLicense === "B" &&
-        speed !== null &&
-        (speed > 19 || gustSpeed > 19 || maxSpeed > 19 || maxGust > 19)) ||
-      (userLicense === "C" &&
-        speed !== null &&
-        (speed > 21 || gustSpeed > 21 || maxSpeed > 21 || maxGust > 21)) ||
-      (userLicense === "D" &&
-        speed !== null &&
-        (speed > 25 || gustSpeed > 25 || maxSpeed > 25 || maxGust > 25))
-    ) {
-      setIsSafe(false);
-    }
-    if (
-      (speed !== null && userMaxSpeed !== "" && userMaxSpeed < speed) ||
-      (maxSpeed !== null && userMaxSpeed !== "" && userMaxSpeed < maxSpeed)
-    ) {
-      setIsSafe(false);
-    }
-    if (
-      (gustSpeed !== null && userMaxGust !== "" && userMaxGust < gustSpeed) ||
-      (maxGust !== null && userMaxGust !== "" && userMaxGust < maxGust)
-    ) {
-      setIsSafe(false);
-    }
-    if (
-      speed !== null &&
-      userDif !== "" &&
-      (userDif < gustSpeed - speed ||
-        userDif < maxGust - maxSpeed ||
-        userDif < maxGust - speed)
-    ) {
-      setIsSafe(false);
-    }
-
-    return function () {
-      setIsSafe(true);
-    };
-  }, [
-    speed,
-    gustSpeed,
-    maxGust,
-    maxSpeed,
-    userMaxSpeed,
-    userMaxGust,
-    userDif,
-    userLicense,
-  ]);
 
   return (
     <div className={darkTheme === 'true' ? 'my-csc' : 'my-csc mylight'}>

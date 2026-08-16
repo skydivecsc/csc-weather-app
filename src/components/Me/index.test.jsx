@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { WeatherContext } from "../../context/WeatherContext";
 import Me from ".";
@@ -77,6 +77,20 @@ describe("Me safety guidance", () => {
     renderMe({ gustSpeed: 16, maxGust: 16, maxSpeed: 10, speed: 10 });
 
     expect(screen.getByText("CSC RECOMMENDS STAND DOWN")).toBeInTheDocument();
+  });
+
+  it("recovers immediately when a selected limit changes", () => {
+    localStorage.setItem("userLicense", "A");
+    renderMe({ speed: 18 });
+
+    expect(screen.getByText("CSC RECOMMENDS STAND DOWN")).toBeInTheDocument();
+
+    fireEvent.change(screen.getAllByRole("combobox")[0], {
+      target: { value: "D" },
+    });
+
+    expect(screen.getByText("CONDITIONS ARE OK!")).toBeInTheDocument();
+    expect(localStorage.getItem("userLicense")).toBe("D");
   });
 
   it("shows a connection warning before safety guidance when AWOS is down", () => {
