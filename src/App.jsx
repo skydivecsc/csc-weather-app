@@ -1,4 +1,4 @@
-import { BrowserRouter as Router, Switch, Route } from "react-router-dom";
+import { Route, Routes, useLocation } from "react-router";
 import { WeatherContext } from "./context/WeatherContext";
 import { useContext } from "react";
 import Footer from "./components/Footer";
@@ -21,109 +21,136 @@ import "./App.css";
 
 function App() {
   const { darkTheme } = useContext(WeatherContext);
+  const { pathname } = useLocation();
+  const isLoadingArea = pathname === "/loadingarea";
 
   return (
-    <Router>
-      <div className={darkTheme === "true" ? "App" : "Applight"}>
-        <div
-          className={
-            window.location.pathname !== "/loadingarea"
-              ? "header-container"
-              : "header-container-loadingarea"
-          }
-        >
-          <Header />
+    <div className={darkTheme === "true" ? "App" : "Applight"}>
+      <div
+        className={
+          isLoadingArea ? "header-container-loadingarea" : "header-container"
+        }
+      >
+        <Header />
+      </div>
+
+      {!isLoadingArea && (
+        <div className="nav-container">
+          <NavBar />
         </div>
+      )}
 
-        {window.location.pathname !== "/loadingarea" && (
-          <div className="nav-container">
-            <NavBar />
-          </div>
-        )}
-
-        <Switch>
-          <Route exact path="/loadingarea">
+      <Routes>
+        <Route
+          path="/loadingarea"
+          element={
             <div className="loadingarea-container">
               <LoadingArea />
             </div>
-          </Route>
-
-          <Route exact path="/webcams">
+          }
+        />
+        <Route
+          path="/webcams"
+          element={
             <div className="hangar-cam-container">
               <WebCam />
             </div>
-          </Route>
-
-          <Route exact path="/gusts">
+          }
+        />
+        <Route
+          path="/gusts"
+          element={
             <div className="gusts-container">
               <GustChart />
             </div>
-          </Route>
-
-          <Route exact path="/aloft">
+          }
+        />
+        <Route
+          path="/aloft"
+          element={
             <div className="aloft-container">
               <WindsAloft />
             </div>
-          </Route>
-
-          <Route exact path="/radar">
+          }
+        />
+        <Route
+          path="/radar"
+          element={
             <div className="radar-container">
               <CscRadar />
             </div>
-          </Route>
-
-          <Route exact path="/aircraft">
+          }
+        />
+        <Route
+          path="/aircraft"
+          element={
             <div className="radar-container">
               <Aircraft />
             </div>
-          </Route>
-
-          <Route exact path="/detailed">
+          }
+        />
+        <Route
+          path="/detailed"
+          element={
             <div className="detailed-container">
               <DetailedPage />
             </div>
-          </Route>
-
-          <Route exact path="/me">
+          }
+        />
+        <Route
+          path="/me"
+          element={
             <div className="my-container">
               <Me />
             </div>
-          </Route>
-
-          <Route exact path="/webcamhelp">
+          }
+        />
+        <Route
+          path="/webcamhelp"
+          element={
             <div className="chart-container">
               <WebcamHelp />
             </div>
-          </Route>
-
-          <Route exact path="/safety">
+          }
+        />
+        <Route
+          path="/safety"
+          element={
             <div className="chart-container">
               <Safety />
             </div>
-          </Route>
-
-          <Route exact path="/manifest">
+          }
+        />
+        <Route
+          path="/manifest"
+          element={
             <div className="manifest-container">
               <Manifest />
             </div>
-          </Route>
-
-          <Route path="/">
+          }
+        />
+        <Route
+          path="/"
+          element={
             <div className="chart-container">
               <Wind />
             </div>
-          </Route>
-        </Switch>
+          }
+        />
+        <Route
+          path="*"
+          element={
+            <div className="chart-container">
+              <Wind />
+            </div>
+          }
+        />
+      </Routes>
 
-        <div className="footer-container">
-          {window.location.pathname !== "/loadingarea" ? (
-            <Footer />
-          ) : (
-            <FooterLoadingArea />
-          )}
-        </div>
+      <div className="footer-container">
+        {isLoadingArea ? <FooterLoadingArea /> : <Footer />}
       </div>
-    </Router>
+    </div>
   );
 }
 

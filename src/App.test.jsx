@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react";
+import { MemoryRouter } from "react-router";
 import { describe, expect, it, vi } from "vitest";
 import App from "./App";
 import { WeatherContext } from "./context/WeatherContext";
@@ -54,12 +55,12 @@ vi.mock("./components/Manifest", () => ({
 }));
 
 function renderRoute(path) {
-  window.history.pushState({}, "", path);
-
   return render(
-    <WeatherContext.Provider value={{ darkTheme: "true" }}>
-      <App />
-    </WeatherContext.Provider>
+    <MemoryRouter initialEntries={[path]}>
+      <WeatherContext.Provider value={{ darkTheme: "true" }}>
+        <App />
+      </WeatherContext.Provider>
+    </MemoryRouter>
   );
 }
 
@@ -89,6 +90,15 @@ describe("App routing", () => {
     renderRoute("/not-a-real-page");
 
     expect(screen.getByTestId("wind")).toBeInTheDocument();
+    expect(screen.getByTestId("navigation")).toBeInTheDocument();
+    expect(screen.getByTestId("footer")).toBeInTheDocument();
+  });
+
+  it("preserves exact matching by sending nested unknown paths home", () => {
+    renderRoute("/gusts/not-a-real-page");
+
+    expect(screen.getByTestId("wind")).toBeInTheDocument();
+    expect(screen.queryByTestId("gusts")).not.toBeInTheDocument();
   });
 
   it("uses the loading-area layout without normal navigation or footer", () => {
