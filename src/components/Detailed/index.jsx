@@ -1,6 +1,6 @@
 import { useContext } from "react";
 import { WeatherContext } from "../../context/WeatherContext";
-import { NavLink } from "react-router-dom";
+import { NavLink } from "react-router";
 import fb from "../../images/fb.png";
 import ig from "../../images/ig.png";
 import wa from "../../images/wa.png";
@@ -316,7 +316,7 @@ function DetailedPage() {
           <tr className={darkTheme === "true" ? "table" : "table-light"}>
             <td>Safety Card:</td>
             <td>
-              <NavLink exact to="/safety">
+              <NavLink end to="/safety">
                 Click for safety
               </NavLink>
             </td>
