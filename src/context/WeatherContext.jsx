@@ -1,5 +1,4 @@
 import { useEffect, useState, createContext } from "react";
-import { w3cwebsocket as WebSocket } from "websocket";
 import { LOGIN_BASE_URL } from "../config";
 
 export const WeatherContext = createContext();
