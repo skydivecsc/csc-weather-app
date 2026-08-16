@@ -1,4 +1,4 @@
-import { useLocation } from "react-router-dom";
+import { useLocation } from "react-router";
 import { useEffect, useState, useContext } from "react";
 import { WeatherContext } from "../../context/WeatherContext";
 import live from "../../images/live.png";
