@@ -10,3 +10,10 @@ export const PUBLIC_SITE_URL = trimTrailingSlash(
 
 export const PUBLIC_SITE_LABEL =
   import.meta.env.VITE_PUBLIC_SITE_LABEL || "cscwx2.com";
+
+export const TRIVIA_SITE_URL = trimTrailingSlash(
+  import.meta.env.VITE_TRIVIA_SITE_URL || "https://trivia.cscwx2.com"
+);
+
+export const TRIVIA_SITE_LABEL =
+  import.meta.env.VITE_TRIVIA_SITE_LABEL || "trivia.cscwx2.com";
