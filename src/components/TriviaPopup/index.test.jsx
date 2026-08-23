@@ -3,11 +3,11 @@ import { describe, expect, it } from "vitest";
 import TriviaPopup from ".";
 
 describe("TriviaPopup", () => {
-  it("links the staging site to the staging trivia game", () => {
+  it("links to the trivia site configured for the current environment", () => {
     render(<TriviaPopup />);
 
-    const link = screen.getByRole("link", { name: "trivia.cscwx2.com" });
-    expect(link).toHaveAttribute("href", "https://trivia.cscwx2.com");
+    const link = screen.getByRole("link", { name: "trivia.test.invalid" });
+    expect(link).toHaveAttribute("href", "https://trivia.test.invalid");
   });
 
   it("remembers when the popup is dismissed", () => {
