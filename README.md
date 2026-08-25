@@ -1,5 +1,9 @@
 # CSC Weather APP
 
+> Staging work belongs on `cscwx2-staging` and is tested at
+> [cscwx2.com](https://cscwx2.com). The `main` branch serves production and is
+> not part of the staging modernization workflow.
+
 CSC WX APP is a commercial app developed for Chicagoland Skydiving Center. This app is currently being used live heavily by both employees and customers to make important safety decisions.
 
 ## Technologies Used
@@ -8,7 +12,46 @@ CSC WX APP is a commercial app developed for Chicagoland Skydiving Center. This 
 
 ## Getting Started
 
-View this app live at [http://cscwx.com](http://cscwx.com)
+View this app live at [https://cscwx.com](https://cscwx.com).
+
+## Environment builds
+
+Staging and production are built from the same source with separate Vite modes.
+The five public settings below are required; the application has no hostname
+fallbacks:
+
+- `VITE_LOGIN_BASE_URL`
+- `VITE_PUBLIC_SITE_URL`
+- `VITE_PUBLIC_SITE_LABEL`
+- `VITE_TRIVIA_SITE_URL`
+- `VITE_TRIVIA_SITE_LABEL`
+
+The tracked `.env.staging` and `.env.production` files contain public URLs and
+labels only. Secrets must not use the `VITE_` prefix or be committed.
+`npm run dev` and `npm run preview` select staging by default; use the named
+`:production` variants only when deliberately checking a production build.
+
+```sh
+npm ci
+npm run lint
+npm test
+
+# cscwx2.com, login.cscwx2.com, and trivia.cscwx2.com
+npm run build:staging
+npm run verify:staging
+
+# cscwx.com, login.cscwx.com, and trivia.cscwx.com
+npm run build:production
+npm run verify:production
+```
+
+The outputs are isolated in `dist/staging` and `dist/production`. Deploy only
+the directory for the intended environment. `npm run build` produces both
+directories, while `npm run verify:builds` checks both existing builds. The
+verification scripts require the exact target settings, reject unresolved Vite
+placeholders, reject `cscwx2.com` hostnames in production, and reject
+`cscwx.com` hostnames in staging. CI runs lint/tests plus both build-and-scan
+paths for changes targeting either `cscwx2-staging` or `main`.
 
 ## Features
 

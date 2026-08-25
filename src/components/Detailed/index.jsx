@@ -1,10 +1,11 @@
 import { useContext } from "react";
-import { WeatherContext } from "../../context/WeatherContext";
-import { NavLink } from "react-router-dom";
+import { WeatherContext } from "../../context/WeatherContextValue";
+import { NavLink } from "react-router";
 import fb from "../../images/fb.png";
 import ig from "../../images/ig.png";
 import wa from "../../images/wa.png";
 import LoadingDots from "../LoadingDots";
+import { TRIVIA_SITE_URL } from "../../config";
 import "./detailed.css";
 
 function DetailedPage() {
@@ -316,7 +317,7 @@ function DetailedPage() {
           <tr className={darkTheme === "true" ? "table" : "table-light"}>
             <td>Safety Card:</td>
             <td>
-              <NavLink exact to="/safety">
+              <NavLink end to="/safety">
                 Click for safety
               </NavLink>
             </td>
@@ -325,7 +326,7 @@ function DetailedPage() {
             <td>Trivia Game:</td>
             <td>
               <a
-                href="https://trivia.cscwx.com/"
+                href={TRIVIA_SITE_URL}
                 rel="noreferrer"
                 target="_blank"
               >

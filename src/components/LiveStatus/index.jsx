@@ -1,34 +1,20 @@
-import { useLocation } from "react-router-dom";
-import { useEffect, useState, useContext } from "react";
-import { WeatherContext } from "../../context/WeatherContext";
+import { useLocation } from "react-router";
+import { useContext } from "react";
+import { WeatherContext } from "../../context/WeatherContextValue";
 import live from "../../images/live.png";
 import "./livestatus.css";
 
 function LiveStatus() {
-  const [liveStatusText, setLiveStatusText] = useState(null);
-
-  const location = useLocation();
-
+  const { pathname } = useLocation();
   const { isAwosLive } = useContext(WeatherContext);
 
-  useEffect(() => {
-    const path = location.pathname;
-    if (!isAwosLive) {
-      setLiveStatusText("AWOS DOWN");
-    } else if (isAwosLive) {
-      setLiveStatusText("LIVE");
-    }
-    if (path === "/aloft") {
-      setLiveStatusText("FORECAST");
-    } else if (
-      path === "/webcams" ||
-      path === "/aircraft" ||
-      path === "/radar" ||
-      path === '/manifest'
-    ) {
-      setLiveStatusText("LIVE");
-    }
-  }, [location, isAwosLive]);
+  const alwaysLivePaths = ["/webcams", "/aircraft", "/radar", "/manifest"];
+  const liveStatusText =
+    pathname === "/aloft"
+      ? "FORECAST"
+      : alwaysLivePaths.includes(pathname) || isAwosLive
+      ? "LIVE"
+      : "AWOS DOWN";
 
   return (
     <div className="livecomponent">

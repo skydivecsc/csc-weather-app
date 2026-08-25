@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { TRIVIA_SITE_LABEL, TRIVIA_SITE_URL } from '../../config';
 import './trivia.css'
 
 function TriviaPopup() {
@@ -16,8 +17,8 @@ function TriviaPopup() {
 
     return (
         <div className={showTrivia === 'true' ? 'trivia-popup' : 'trivia-popup trivia-hidden'}>
-            <span id='trivia-title'>Save the trivia game!</span> Play at <a href='https://trivia.skydivecsc.com' target='_blank' rel='noreferrer'>trivia.skydivecsc.com</a>
-            or find the link in the 'Detailed' tab.
+            <span id='trivia-title'>Save the trivia game!</span> Play at <a href={TRIVIA_SITE_URL} target='_blank' rel='noreferrer'>{TRIVIA_SITE_LABEL}</a>
+            or find the link in the &apos;Detailed&apos; tab.
             If the leaderboard top 10 is not filled by the end of the month the free jump game will be canceled :(
             <button onClick={handleTriviaPopup} id='trivia-dismiss'>Dismiss</button>
         </div>

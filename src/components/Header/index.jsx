@@ -1,7 +1,6 @@
 import GetCst from "../Time";
 import CurrentTemp from "../Temperature";
 import LiveStatus from "../LiveStatus";
-import audio from "../../images/audio.png";
 import Beerlight from "../Beerlight";
 import HamburgerMenu from "../HamburgerMenu";
 import "./headermenu.css";
@@ -23,16 +22,7 @@ function Header() {
 
       {window.location.pathname !== "/loadingarea" ? (
         <div className="header-imgs">
-          {/*
-           ****************  AUDIO FEED REMOVED WHILE REBUILD -- LEAVE DIV FOR SPACING ************************
-           */}
-          {/* <a
-            href="http://audio.skydivecsc.com/"
-            target="_blank"
-            rel="noreferrer"
-          >
-            <img src={audio} alt="audio" />
-          </a> */}
+          {/* Audio feed removed while rebuilding; retain spacing. */}
         </div>
       ) : null}
 

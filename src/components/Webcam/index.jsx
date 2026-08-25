@@ -1,19 +1,23 @@
-import { useEffect, useState, useContext } from "react";
-import { NavLink } from "react-router-dom";
-import { WeatherContext } from "../../context/WeatherContext";
+import { useEffect, useContext, useState } from "react";
+import { WeatherContext } from "../../context/WeatherContextValue";
 import "./webcam.css";
+
+const webcamSources = {
+  west: "https://webcam.skydivecsc.com/hangar_nw",
+  east: "https://webcam.skydivecsc.com/hangar_ne",
+  patio: "https://webcam.skydivecsc.com/courtyard",
+  lz: "https://webcam.skydivecsc.com/main_landing_area",
+};
 
 function WebCam() {
   const { webcamDirection, setWebcamDirection, darkTheme } =
     useContext(WeatherContext);
+  const [timestamp, setTimestamp] = useState(Date.now);
+  const webcamSource = webcamSources[webcamDirection];
 
   const handleWebcamEast = () => {
     setWebcamDirection("east");
     localStorage.setItem("webcamDirection", "east");
-  };
-  const handleWebcamWest = () => {
-    setWebcamDirection("west");
-    localStorage.setItem("webcamDirection", "west");
   };
   const handleWebcamPatio = () => {
     setWebcamDirection("patio");
@@ -30,24 +34,11 @@ function WebCam() {
 
   useEffect(() => {
     const interval = setInterval(() => {
-      const timestamp = Date.now();
-      const imgElement = document.getElementById("cam");
-      if (webcamDirection === "west") {
-        imgElement.src = `https://webcam.skydivecsc.com/hangar_nw?${timestamp}`;
-      }
-      if (webcamDirection === "east") {
-        imgElement.src = `https://webcam.skydivecsc.com/hangar_ne?${timestamp}`;
-      }
-      if (webcamDirection === "patio") {
-        imgElement.src = `https://webcam.skydivecsc.com/courtyard?${timestamp}`;
-      }
-      if (webcamDirection === "lz") {
-        imgElement.src = `https://webcam.skydivecsc.com/main_landing_area?${timestamp}`;
-      }
+      setTimestamp(Date.now());
     }, 3000);
 
     return () => clearInterval(interval);
-  }, [webcamDirection]);
+  }, []);
 
   return (
     <div className="hangar-cam">
@@ -111,7 +102,7 @@ function WebCam() {
 
 
       </div>
-      {webcamDirection === "yard" ? (
+      {!webcamSource ? (
         <div className="yard-cam">
           <iframe
             title="csc-yard-webcam"
@@ -121,20 +112,7 @@ function WebCam() {
         </div>
       ) : (
         <img
-          src={
-            webcamDirection === "west"
-              ? `https://webcam.skydivecsc.com/hangar_nw?${Date.now()}`
-              :
-            webcamDirection === "east"
-              ? `https://webcam.skydivecsc.com/hangar_ne?${Date.now()}`
-              :
-            webcamDirection === "patio"
-              ? `https://webcam.skydivecsc.com/courtyard?${Date.now()}`
-              :
-            webcamDirection === "lz"
-              ? `https://webcam.skydivecsc.com/main_landing_area?${Date.now()}`
-              : handleWebcamYard()
-          }
+          src={`${webcamSource}?${timestamp}`}
           id="cam"
           alt="Camera feed not found, This is a problem with the source and not this app."
         />

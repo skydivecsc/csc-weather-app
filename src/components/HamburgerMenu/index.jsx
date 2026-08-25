@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useContext } from "react";
-import { WeatherContext } from "../../context/WeatherContext";
+import { WeatherContext } from "../../context/WeatherContextValue";
+import { LOGIN_BASE_URL } from "../../config";
 import "./hamburger.css";
 
 function HamburgerMenu() {
@@ -80,11 +81,7 @@ function HamburgerMenu() {
   };
 
   const handleLogin = () => {
-    window.location.href = 'https://login.cscwx.com/'
-  }
-
-  const handleHelp = () => {
-    window.open('https://github.com/RyanFullStack/csc-weather-app#Features', '_blank', 'noreferrer')
+    window.location.href = `${LOGIN_BASE_URL}/`
   }
 
   useEffect(() => {
@@ -279,16 +276,6 @@ function HamburgerMenu() {
             LIGHT
           </button>
         </div>
-        {/* <div
-          className={
-            darkTheme === "true"
-              ? "menu-button-container"
-              : "menu-button-container-light"
-          }
-          id='help-login-div'
-        >
-          <button onClick={handleHelp} id='help-button'>HELP</button>
-        </div> */}
         <div
           className={
             darkTheme === "true"

@@ -1,5 +1,6 @@
 import { useContext } from "react";
-import { WeatherContext } from "../../context/WeatherContext";
+import { WeatherContext } from "../../context/WeatherContextValue";
+import { PUBLIC_SITE_LABEL, PUBLIC_SITE_URL } from "../../config";
 import "./footer.css";
 
 function Footer() {
@@ -57,10 +58,10 @@ function Footer() {
       )}
       <p>
         <a
-          href="https://cscwx.com"
+          href={PUBLIC_SITE_URL}
           rel="noreferrer"
         >
-          cscwx.com
+          {PUBLIC_SITE_LABEL}
         </a>
       </p>
     </div>

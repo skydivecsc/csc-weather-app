@@ -1,45 +1,63 @@
-import { useEffect, useState, createContext } from "react";
+import { useEffect, useState } from "react";
+import { LOGIN_BASE_URL } from "../config";
+import { LoadContext } from "./LoadContextValue";
+import { startPolling } from "./polling";
 
-export const LoadContext = createContext();
+const LOAD_REFRESH_MS = 5000;
+const LOAD_TIMEOUT_MS = 35000;
 
-const LoadProvider = (props) => {
-    const [loads, setLoads] = useState([])
-    const [displaySport, setDisplaySport] = useState(localStorage.getItem('displaySport') || 'true')
-    const [displayStudent, setDisplayStudent] = useState(localStorage.getItem('displayStudent') || 'true')
-    const [displayTandem, setDisplayTandem] = useState(localStorage.getItem('displayTandem') || 'true')
+const fetchLoads = async ({ signal }) => {
+  const response = await fetch(`${LOGIN_BASE_URL}/api/loads/`, { signal });
+  const data = await response.json();
+  if (typeof data?.error === "string") {
+    return { error: data.error };
+  }
+  if (!response.ok) {
+    throw new Error(`Load request failed with status ${response.status}`);
+  }
+  if (Array.isArray(data?.loads)) {
+    return data.loads;
+  }
 
-    const getLoads = async () => {
-        const res = await fetch("https://login.cscwx.com/api/loads/")
-        const data = await res.json()
-        if (data.loads) {
-            setLoads(data.loads)
-        }
-        else if (data.error) {
-            setLoads(data.error)
-        }
-        else {
-            setLoads({error: "Can't fetch loads :("})
-        }
-    }
+  return { error: "Can't fetch loads :(" };
+};
 
-    useEffect(() => {
-        getLoads();
+const LoadProvider = ({ children }) => {
+  const [loads, setLoads] = useState([]);
+  const [displaySport, setDisplaySport] = useState(
+    localStorage.getItem("displaySport") || "true"
+  );
+  const [displayStudent, setDisplayStudent] = useState(
+    localStorage.getItem("displayStudent") || "true"
+  );
+  const [displayTandem, setDisplayTandem] = useState(
+    localStorage.getItem("displayTandem") || "true"
+  );
 
-        const fiveSecondInterval = setInterval(() => {
-            getLoads();
-        }, 5000)
+  useEffect(() => {
+    return startPolling({
+      intervalMs: LOAD_REFRESH_MS,
+      timeoutMs: LOAD_TIMEOUT_MS,
+      request: fetchLoads,
+      onResult: setLoads,
+    });
+  }, []);
 
-        return () => {
-            clearInterval(fiveSecondInterval)
-        }
-    }, [])
-
-
-    return (
-        <LoadContext.Provider value={{loads, displaySport, displayStudent, displayTandem, setDisplaySport, setDisplayStudent, setDisplayTandem}}>
-            {props.children}
-        </LoadContext.Provider>
-    )
-}
+  return (
+    <LoadContext.Provider
+      value={{
+        loads,
+        displaySport,
+        displayStudent,
+        displayTandem,
+        setDisplaySport,
+        setDisplayStudent,
+        setDisplayTandem,
+      }}
+    >
+      {children}
+    </LoadContext.Provider>
+  );
+};
 
 export default LoadProvider
