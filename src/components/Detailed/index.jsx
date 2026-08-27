@@ -25,6 +25,7 @@ function DetailedPage() {
     sunset24,
     sunrise24,
     twilight24,
+    astronomyStatus,
     skyCondition1,
     skyCondition2,
     skyCondition3,
@@ -45,9 +46,40 @@ function DetailedPage() {
     metarDesc,
     speedUnit,
     unitSetting,
-    isAwosLive,
+    canEvaluateWindSafety,
+    windStatus,
+    windStatusDetail,
+    windStatusText,
     timeFormat
   } = useContext(WeatherContext);
+
+  const windSafetyWarning = "WIND DATA INCOMPLETE — DO NOT USE FOR GO/NO-GO";
+  const windRowClassName = `${
+    darkTheme === "true" ? "table" : "table-light"
+  }${windStatus === "live" ? "" : " detailed-wind-aged"}`;
+  const astronomyHasError = astronomyStatus?.state === "error";
+  const renderAstronomyValue = (value, value24) => {
+    if (astronomyHasError && !astronomyStatus.hasSample) {
+      return <span className="astronomy-value-last-known">Unavailable</span>;
+    }
+    if (value === null) {
+      return <LoadingDots />;
+    }
+
+    return (
+      <>
+        <span
+          className={
+            astronomyHasError
+              ? "astronomy-value-last-known"
+              : undefined
+          }
+        >
+          {timeFormat === "true" ? value : value24}
+        </span>
+      </>
+    );
+  };
 
   return (
     <div className="detailed-contents">
@@ -60,8 +92,8 @@ function DetailedPage() {
         </span>
       ) : (
         <span className="student-wind-hold">
-          {!isAwosLive ? (
-            <span className="red">NO AWOS CONNECTION</span>
+          {!canEvaluateWindSafety ? (
+            <span className="red">{windSafetyWarning}</span>
           ) : maxGust > 50 || maxSpeed > 50 || speed > 50 ? (
             <span className="red">*** HOLY $h*T!!! ***</span>
           ) : maxGust > 40 || maxSpeed > 40 || speed > 40 ? (
@@ -78,17 +110,40 @@ function DetailedPage() {
 
       <table>
         <tbody>
+          {astronomyHasError ? (
+            <tr className={darkTheme === "true" ? "table" : "table-light"}>
+              <td colSpan="2">
+                <span
+                  className={
+                    astronomyStatus.hasSample
+                      ? "astronomy-retry-status"
+                      : "astronomy-unavailable"
+                  }
+                  role="status"
+                >
+                  {astronomyStatus.hasSample
+                    ? "SHOWING LAST-KNOWN ASTRONOMY DATA — UPDATE FAILED, RETRYING"
+                    : "ASTRONOMY DATA UNAVAILABLE — RETRYING"}
+                  {astronomyStatus.hasSample && astronomyStatus.ageLabel ? (
+                    <span>
+                      Last successful update {astronomyStatus.ageLabel}
+                    </span>
+                  ) : null}
+                </span>
+              </td>
+            </tr>
+          ) : null}
           <tr className={darkTheme === "true" ? "table" : "table-light"}>
             <td>Sunset:</td>
-            <td>{sunset === null ? <LoadingDots /> : timeFormat === 'true' ? sunset : sunset24}</td>
+            <td>{renderAstronomyValue(sunset, sunset24)}</td>
           </tr>
           <tr className={darkTheme === "true" ? "table" : "table-light"}>
             <td>Twilight:</td>
-            <td>{twilight === null ? <LoadingDots /> : timeFormat === 'true' ? twilight : twilight24}</td>
+            <td>{renderAstronomyValue(twilight, twilight24)}</td>
           </tr>
           <tr className={darkTheme === "true" ? "table" : "table-light"}>
             <td>Sunrise:</td>
-            <td>{sunrise === null ? <LoadingDots /> : timeFormat === 'true' ? sunrise : sunrise24}</td>
+            <td>{renderAstronomyValue(sunrise, sunrise24)}</td>
           </tr>
 
           {jumpruns[0]?.heading ? (
@@ -127,10 +182,19 @@ function DetailedPage() {
             </tr>
           ) : null}
 
-          <tr className={darkTheme === "true" ? "table" : "table-light"}>
+          <tr className={windRowClassName}>
+            <td>Wind Data:</td>
+            <td className={windStatus === "live" ? "green" : "red"}>
+              {windStatusText}
+            </td>
+          </tr>
+
+          <tr className={windRowClassName}>
             <td>Current Speed:</td>
             <td>
-              {speed === 0 ? (
+              {!windStatusDetail?.hasSample ? (
+                "Unavailable"
+              ) : speed === 0 ? (
                 `0 ${speedUnit === "true" ? "kts" : "mph"}`
               ) : !speed ? null : speed === 1 ? (
                 `${speed} ${speedUnit === "true" ? "kt" : "mph"}`
@@ -151,10 +215,12 @@ function DetailedPage() {
               )}
             </td>
           </tr>
-          <tr className={darkTheme === "true" ? "table" : "table-light"}>
+          <tr className={windRowClassName}>
             <td>Current Gust:</td>
             <td>
-              {gustSpeed && gustSpeed > 25 ? (
+              {!windStatusDetail?.hasSample ? (
+                "Unavailable"
+              ) : gustSpeed && gustSpeed > 25 ? (
                 <span className="red">
                   {Math.round(gustSpeed * (speedUnit === "false" ? 1.151 : 1))}{" "}
                   {speedUnit === "true" ? "kts" : "mph"}
@@ -174,7 +240,7 @@ function DetailedPage() {
             </td>
           </tr>
 
-          <tr className={darkTheme === "true" ? "table" : "table-light"}>
+          <tr className={windRowClassName}>
             <td>
               Max Speed <small>(30 Min)</small>:
             </td>
@@ -205,7 +271,7 @@ function DetailedPage() {
               )}
             </td>
           </tr>
-          <tr className={darkTheme === "true" ? "table" : "table-light"}>
+          <tr className={windRowClassName}>
             <td>
               Max Gust <small>(30 Min)</small>:
             </td>
@@ -229,14 +295,24 @@ function DetailedPage() {
             </td>
           </tr>
 
-          <tr className={darkTheme === "true" ? "table" : "table-light"}>
+          <tr className={windRowClassName}>
             <td>Wind Direction:</td>
-            <td>{direction ? `${direction}º` : speed === 0 ? `Calm` : null}</td>
+            <td>
+              {!windStatusDetail?.hasSample
+                ? "Unavailable"
+                : direction
+                  ? `${direction}º`
+                  : speed === 0
+                    ? "Calm"
+                    : null}
+            </td>
           </tr>
-          <tr className={darkTheme === "true" ? "table" : "table-light"}>
+          <tr className={windRowClassName}>
             <td>Variable Direction:</td>
             <td>
-              {variableDirection1 && variableDirection2
+              {!windStatusDetail?.hasSample
+                ? "Unavailable"
+                : variableDirection1 && variableDirection2
                 ? `${variableDirection1}º - ${variableDirection2}º`
                 : "Steady"}
             </td>

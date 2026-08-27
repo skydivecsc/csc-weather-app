@@ -1,10 +1,11 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { WeatherContext } from "../../context/WeatherContextValue";
+import { CURRENT_BUILD_ID } from "../UpdateDetector/constants";
 import Footer from ".";
 
 describe("Footer attribution", () => {
-  it("links Ryan Erickson's credit to his LinkedIn profile", () => {
+  it("renders Ryan Erickson's credit as plain text", () => {
     render(
       <WeatherContext.Provider
         value={{ jumpruns: [], metar: "", newOffset: "", newSpot: "" }}
@@ -13,17 +14,21 @@ describe("Footer attribution", () => {
       </WeatherContext.Provider>
     );
 
+    expect(screen.getByText("Created by: Ryan Erickson")).toBeInTheDocument();
     expect(
-      screen.getByRole("link", { name: "Created by: Ryan Erickson" })
-    ).toHaveAttribute(
-      "href",
-      "https://www.linkedin.com/in/ryan-erickson-dev"
+      screen.queryByRole("link", { name: "Created by: Ryan Erickson" })
+    ).not.toBeInTheDocument();
+
+    const shortBuildId = CURRENT_BUILD_ID.slice(0, 8);
+    const buildVersion = screen.getByText(`Build ${shortBuildId}`);
+
+    expect(buildVersion).toHaveAccessibleName(
+      `Build ${shortBuildId}; full build commit ${CURRENT_BUILD_ID}`
     );
-    expect(
-      screen.getByRole("link", { name: "Created by: Ryan Erickson" })
-    ).toHaveAttribute("target", "_blank");
-    expect(
-      screen.getByRole("link", { name: "Created by: Ryan Erickson" })
-    ).toHaveAttribute("rel", "noreferrer");
+    expect(buildVersion).toHaveAttribute(
+      "title",
+      `Full build commit: ${CURRENT_BUILD_ID}`
+    );
+    expect(buildVersion).toHaveAttribute("data-build-id", CURRENT_BUILD_ID);
   });
 });

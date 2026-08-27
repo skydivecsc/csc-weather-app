@@ -31,14 +31,26 @@ export function startPolling({
 
   let disposed = false;
   let activeRun = null;
+  let queuedRun = false;
 
-  const run = async () => {
-    if (disposed || activeRun) {
+  const run = async ({ queueIfBusy = false } = {}) => {
+    if (disposed) {
       return;
+    }
+    if (activeRun) {
+      if (queueIfBusy) {
+        queuedRun = true;
+      }
+      return activeRun.promise;
     }
 
     const controller = new AbortController();
-    const currentRun = { controller, timeoutId: null };
+    const currentRun = {
+      controller,
+      promise: null,
+      timedOut: false,
+      timeoutId: null,
+    };
     activeRun = currentRun;
 
     const aborted = new Promise((_, reject) => {
@@ -46,48 +58,65 @@ export function startPolling({
       controller.signal.addEventListener("abort", currentRun.abortHandler, {
         once: true,
       });
-      currentRun.timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+      currentRun.timeoutId = setTimeout(() => {
+        currentRun.timedOut = true;
+        controller.abort();
+      }, timeoutMs);
     });
 
-    try {
-      const result = await Promise.race([
-        Promise.resolve().then(() => request({ signal: controller.signal })),
-        aborted,
-      ]);
+    currentRun.promise = (async () => {
+      try {
+        const result = await Promise.race([
+          Promise.resolve().then(() => request({ signal: controller.signal })),
+          aborted,
+        ]);
 
-      if (
-        !disposed &&
-        activeRun === currentRun &&
-        !controller.signal.aborted
-      ) {
-        onResult(result);
+        if (
+          !disposed &&
+          activeRun === currentRun &&
+          !controller.signal.aborted
+        ) {
+          onResult(result);
+        }
+      } catch (error) {
+        if (
+          !disposed &&
+          activeRun === currentRun &&
+          (currentRun.timedOut || !isAbortError(error))
+        ) {
+          onError(
+            currentRun.timedOut
+              ? new Error("Polling request timed out")
+              : error
+          );
+        }
+      } finally {
+        clearTimeout(currentRun.timeoutId);
+        controller.signal.removeEventListener("abort", currentRun.abortHandler);
+        if (activeRun === currentRun) {
+          activeRun = null;
+        }
+
+        if (!disposed && queuedRun) {
+          queuedRun = false;
+          void run();
+        }
       }
-    } catch (error) {
-      if (
-        !disposed &&
-        activeRun === currentRun &&
-        !isAbortError(error)
-      ) {
-        onError(error);
-      }
-    } finally {
-      clearTimeout(currentRun.timeoutId);
-      controller.signal.removeEventListener("abort", currentRun.abortHandler);
-      if (activeRun === currentRun) {
-        activeRun = null;
-      }
-    }
+    })();
+
+    return currentRun.promise;
   };
 
-  const initialTimer = setTimeout(run, 0);
-  const intervalTimer = setInterval(run, intervalMs);
+  const initialTimer = setTimeout(() => void run(), 0);
+  const intervalTimer = setInterval(() => void run(), intervalMs);
 
-  return () => {
+  const stop = () => {
     if (disposed) {
       return;
     }
 
     disposed = true;
+    queuedRun = false;
     clearTimeout(initialTimer);
     clearInterval(intervalTimer);
 
@@ -97,4 +126,8 @@ export function startPolling({
       activeRun = null;
     }
   };
+
+  stop.runNow = () => run({ queueIfBusy: true });
+
+  return stop;
 }

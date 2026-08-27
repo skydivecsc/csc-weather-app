@@ -22,22 +22,33 @@ function Wind() {
     cloudCeilingM3,
     speedUnit,
     unitSetting,
+    windStatus,
+    windStatusDetail,
+    windStatusText,
   } = useContext(WeatherContext);
 
 
+  const hasWind = windStatusDetail?.hasSample;
+  const displayedSpeed = Math.round(
+    speed * (speedUnit === "false" ? 1.151 : 1)
+  );
   return (
-    <div className="wind-component">
+    <div
+      className={`wind-component ${windStatus === "live" ? "" : "wind-data-aged"}`}
+    >
       <div className="wind-component-left">
         <div className="wind-speed">
-          {speed > 25 ? (
+          {!hasWind ? (
+            <span>--</span>
+          ) : speed > 25 ? (
             <span className="red">
-              {Math.round(speed * (speedUnit === "false" ? 1.151 : 1))}
+              {displayedSpeed}
             </span>
           ) : (
-            Math.round(speed * (speedUnit === "false" ? 1.151 : 1))
+            displayedSpeed
           )}
           <div className="small">
-            {speed === 1 ? (
+            {!hasWind ? null : speed === 1 ? (
               `kt`
             ) : speed > 25 ? (
               <span className="red">
@@ -51,7 +62,9 @@ function Wind() {
           </div>
         </div>
         <div className="wind-gusts">
-          {gustSpeed > 0 && gustSpeed <= 15 ? (
+          {!hasWind ? (
+            <span className="red">No Current Wind</span>
+          ) : gustSpeed > 0 && gustSpeed <= 15 ? (
             <span className="green">
               Gusting:{" "}
               {Math.round(gustSpeed * (speedUnit === "false" ? 1.151 : 1))}
@@ -75,7 +88,16 @@ function Wind() {
         </div>
 
         <div className="wind-direction">
-          {direction ? `From ${direction}º` : speed === 0 ? `Calm` : null}
+          {!hasWind
+            ? "Direction unavailable"
+            : direction
+              ? `From ${direction}º`
+              : speed === 0
+                ? "Calm"
+                : null}
+        </div>
+        <div className={`wind-freshness wind-freshness-${windStatus}`}>
+          {windStatusText}
         </div>
       </div>
       <div className="wind-component-right">
@@ -86,7 +108,13 @@ function Wind() {
             }
             alt="Wind Direction"
             className="arrow"
-            style={speed === 0 ? { transform: `rotate(250deg)` } : { transform: `rotate(${direction}deg)` }}
+            style={
+              !hasWind
+                ? { opacity: 0.25, transform: "rotate(250deg)" }
+                : speed === 0
+                  ? { transform: "rotate(250deg)" }
+                  : { transform: `rotate(${direction}deg)` }
+            }
           ></img>
         </div>
         <div className="metar-abbr">

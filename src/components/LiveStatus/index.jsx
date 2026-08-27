@@ -6,19 +6,23 @@ import "./livestatus.css";
 
 function LiveStatus() {
   const { pathname } = useLocation();
-  const { isAwosLive } = useContext(WeatherContext);
+  const { windStatus, windStatusText } = useContext(WeatherContext);
 
   const alwaysLivePaths = ["/webcams", "/aircraft", "/radar", "/manifest"];
-  const liveStatusText =
-    pathname === "/aloft"
-      ? "FORECAST"
-      : alwaysLivePaths.includes(pathname) || isAwosLive
+  const isAlwaysLive = alwaysLivePaths.includes(pathname);
+  const liveStatusText = pathname === "/aloft"
+    ? "FORECAST"
+    : isAlwaysLive
       ? "LIVE"
-      : "AWOS DOWN";
+      : windStatusText;
+  const showLiveIcon = isAlwaysLive || windStatus === "live";
 
   return (
-    <div className="livecomponent">
-      {liveStatusText} {liveStatusText === "LIVE" ? <img src={live} /> : null}
+    <div className={`livecomponent live-${windStatus || "unavailable"}`}>
+      <span>
+        {liveStatusText}
+      </span>
+      {showLiveIcon ? <img src={live} alt="" /> : null}
     </div>
   );
 }

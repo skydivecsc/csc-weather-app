@@ -1,14 +1,19 @@
 import { useContext } from "react";
 import { WeatherContext } from "../../context/WeatherContextValue";
 import { PUBLIC_SITE_LABEL } from "../../config";
-import './loadingfooter.css'
+import BuildVersion from "../BuildVersion";
+import "./loadingfooter.css";
 
 function FooterLoadingArea() {
-  const { jumpruns, maxGust, maxSpeed, speed } = useContext(WeatherContext);
+  const { canEvaluateWindSafety, jumpruns, maxGust, maxSpeed, speed } =
+    useContext(WeatherContext);
 
   return (
     <div className="footer-jumprun-loading">
-      <div className="loading-footer-content">{PUBLIC_SITE_LABEL}</div>
+      <div className="loading-footer-content loading-footer-site">
+        <span>{PUBLIC_SITE_LABEL}</span>
+        <BuildVersion />
+      </div>
 
       {jumpruns[0]?.beerLight ? (
         <span className="yellow weather-hold" id="loading-footer-light">
@@ -20,7 +25,11 @@ function FooterLoadingArea() {
         </span>
       ) : (
         <span className="student-wind-hold-loading">
-          {maxGust > 25 || maxSpeed > 25 || speed > 25 ? (
+          {!canEvaluateWindSafety ? (
+            <span className="red">
+              *** WIND DATA INCOMPLETE — DO NOT USE FOR GO/NO-GO ***
+            </span>
+          ) : maxGust > 25 || maxSpeed > 25 || speed > 25 ? (
             <span className="red">*** DZ WIND LIMIT HIT ***</span>
           ) : maxGust > 15 || maxSpeed > 15 || speed > 15 ? (
             <span className="yellow">*** STUDENT WIND HOLD ***</span>

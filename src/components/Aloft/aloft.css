@@ -38,6 +38,26 @@ th {
   text-align: center;
 }
 
+.aloft-retry-status {
+  color: rgb(255, 216, 0);
+  font-size: calc(8px + 0.8vmin);
+  font-weight: 700;
+  margin: 0.35rem 0;
+  text-align: center;
+}
+
+.aloft-retry-status span {
+  display: block;
+}
+
+.aloft-retry-status + .aloft-contents table {
+  opacity: 0.65;
+}
+
+.loading.aloft-retry-status {
+  color: rgb(243, 16, 16);
+}
+
 .aloft-card {
   display: flex;
   flex-direction: column;

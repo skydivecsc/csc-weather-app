@@ -63,16 +63,21 @@ describe("startPolling", () => {
         return Promise.resolve("fresh result");
       });
     const onResult = vi.fn();
+    const onError = vi.fn();
     const stop = startPolling({
       intervalMs: 1000,
       timeoutMs: 100,
       request,
+      onError,
       onResult,
     });
 
     await vi.advanceTimersByTimeAsync(0);
     await vi.advanceTimersByTimeAsync(100);
     expect(signals[0].aborted).toBe(true);
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "Polling request timed out" })
+    );
 
     await vi.advanceTimersByTimeAsync(900);
     expect(request).toHaveBeenCalledTimes(2);
@@ -108,6 +113,33 @@ describe("startPolling", () => {
     stop();
   });
 
+  it("runs on demand and queues one recovery behind an active request", async () => {
+    const first = deferred();
+    const request = vi
+      .fn()
+      .mockImplementationOnce(() => first.promise)
+      .mockResolvedValueOnce("recovered");
+    const onResult = vi.fn();
+    const stop = startPolling({
+      intervalMs: 60000,
+      request,
+      onResult,
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(request).toHaveBeenCalledOnce();
+    void stop.runNow();
+    void stop.runNow();
+    expect(request).toHaveBeenCalledOnce();
+
+    first.resolve("first");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(onResult).toHaveBeenNthCalledWith(1, "first");
+    expect(onResult).toHaveBeenNthCalledWith(2, "recovered");
+    stop();
+  });
+
   it("aborts on cleanup and suppresses a late result", async () => {
     const pending = deferred();
     let signal;
@@ -116,9 +148,11 @@ describe("startPolling", () => {
       return pending.promise;
     });
     const onResult = vi.fn();
+    const onError = vi.fn();
     const stop = startPolling({
       intervalMs: 1000,
       request,
+      onError,
       onResult,
     });
 
@@ -129,6 +163,7 @@ describe("startPolling", () => {
     pending.resolve("too late");
     await vi.advanceTimersByTimeAsync(5000);
     expect(onResult).not.toHaveBeenCalled();
+    expect(onError).not.toHaveBeenCalled();
     expect(request).toHaveBeenCalledOnce();
   });
 });

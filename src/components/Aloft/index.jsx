@@ -15,11 +15,18 @@ function WindsAloft() {
     tempSetting,
     unitSetting,
     speedUnit,
+    aloftStatus,
   } = useContext(WeatherContext);
 
-
-  if (directions?.error) {
-    return <div className="loading">No Winds Aloft Found</div>;
+  if (
+    (aloftStatus?.state === "error" && !aloftStatus.hasSample) ||
+    directions?.error
+  ) {
+    return (
+      <div className="loading aloft-retry-status" role="status">
+        WINDS ALOFT UNAVAILABLE — RETRYING
+      </div>
+    );
   }
 
   if (!directions || !speeds || !temps || !received) {
@@ -34,6 +41,14 @@ function WindsAloft() {
         }
       >
         <AloftIsValid />
+        {aloftStatus?.state === "error" && aloftStatus.hasSample ? (
+          <div className="aloft-retry-status" role="status">
+            SHOWING LAST-KNOWN WINDS ALOFT — UPDATE FAILED, RETRYING
+            {aloftStatus.ageLabel ? (
+              <span>Last successful update {aloftStatus.ageLabel}</span>
+            ) : null}
+          </div>
+        ) : null}
         <div className="aloft-contents">
           <table>
             <thead>

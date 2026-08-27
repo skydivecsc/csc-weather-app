@@ -18,6 +18,16 @@
   cursor: pointer;
 }
 
+.footer-attribution {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.footer-attribution p {
+  margin: 0;
+}
+
 .footer-jumprun {
   display: flex;
   flex-direction: column;

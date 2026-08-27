@@ -57,6 +57,29 @@
   justify-content: center;
   align-items: center;
 }
+.loading-wind-status {
+  font-size: calc(7px + 0.8vmin);
+  font-weight: 700;
+  margin-top: 0.5rem;
+  text-align: center;
+}
+.loading-wind-live {
+  color: rgb(8, 228, 209);
+}
+.loading-wind-backup {
+  color: rgb(255, 216, 0);
+}
+.loading-wind-connecting,
+.loading-wind-offline,
+.loading-wind-stale,
+.loading-wind-unavailable {
+  color: rgb(243, 16, 16);
+}
+.loading-wind-aged .wind-speed-loading,
+.loading-wind-aged .wind-gusts,
+.loading-wind-aged .wind-direction {
+  opacity: 0.65;
+}
 .gust {
   display: flex;
   flex-direction: column;
@@ -68,6 +91,34 @@
   justify-content: center;
   align-items: center;
   width: 90%;
+}
+
+.aloft-retry-status,
+.astronomy-retry-status {
+  color: rgb(255, 216, 0);
+  font-size: calc(8px + 0.8vmin);
+  font-weight: 700;
+  margin: 0.25rem 0;
+  text-align: center;
+}
+
+.aloft-retry-status span,
+.astronomy-retry-status span {
+  display: block;
+}
+
+.aloft-retry-status + table,
+.astronomy-value-last-known {
+  opacity: 0.65;
+}
+
+.loading.aloft-retry-status,
+.astronomy-unavailable {
+  color: rgb(243, 16, 16);
+}
+
+.astronomy-retry-status {
+  display: block;
 }
 
 @media screen and (max-width: 1100px) {

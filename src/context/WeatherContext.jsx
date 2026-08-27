@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { LOGIN_BASE_URL } from "../config";
 import { startPolling } from "./polling";
 import { WeatherContext } from "./WeatherContextValue";
@@ -9,15 +9,61 @@ const TEN_MINUTES = 600000;
 const INITIAL_SOCKET_RETRY_MS = 1000;
 const MAX_SOCKET_RETRY_MS = 30000;
 const SOCKET_ACK_TIMEOUT_MS = 10000;
-const SOCKET_DATA_TIMEOUT_MS = 15000;
+const WIND_LIVE_MS = 15000;
+const WEATHER_LIVE_MS = 90000;
+const REST_FALLBACK_MS = 90000;
+const MAX_FUTURE_SKEW_MS = 30000;
+const STATUS_TICK_MS = 1000;
+const ALOFT_ALTITUDE_KEYS = Array.from(
+  { length: 18 },
+  (_, index) => `${(index + 1) * 1000}`
+);
+
+const parseServerTime = (value) => {
+  if (typeof value !== "string" || value.trim() === "") {
+    return null;
+  }
+
+  const numericValue = Number(value);
+  if (Number.isFinite(numericValue)) {
+    return numericValue < 100000000000 ? numericValue * 1000 : numericValue;
+  }
+
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const responseServerTime = (response) =>
+  parseServerTime(response.headers?.get?.("X-CSCWX-Server-Time")) ??
+  parseServerTime(response.headers?.get?.("Date"));
 
 const fetchJson = async (path, { signal }) => {
-  const response = await fetch(`${LOGIN_BASE_URL}${path}`, { signal });
+  const response = await fetch(`${LOGIN_BASE_URL}${path}`, {
+    cache: "no-store",
+    signal,
+  });
   if (!response.ok) {
     throw new Error(`${path} request failed with status ${response.status}`);
   }
 
   return response.json();
+};
+
+const fetchWindHistory = async ({ signal }) => {
+  const response = await fetch(`${LOGIN_BASE_URL}/api/weather/gusts`, {
+    cache: "no-store",
+    signal,
+  });
+  if (!response.ok) {
+    throw new Error(
+      `/api/weather/gusts request failed with status ${response.status}`
+    );
+  }
+
+  return {
+    data: await response.json(),
+    serverNow: responseServerTime(response),
+  };
 };
 
 const formatJumprunAdjustment = (value) => {
@@ -33,8 +79,82 @@ const formatJumprunAdjustment = (value) => {
 const isNullableFiniteNumber = (value) =>
   value === null || Number.isFinite(value);
 
+const isNonEmptyRecord = (value) =>
+  value &&
+  typeof value === "object" &&
+  !Array.isArray(value) &&
+  Object.keys(value).length > 0;
+
+const toFiniteNumber = (value) => {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+  if (typeof value !== "string" || value.trim() === "") {
+    return null;
+  }
+
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const normalizeAloftPayload = (data) => {
+  if (
+    !isNonEmptyRecord(data?.direction) ||
+    !isNonEmptyRecord(data?.speed) ||
+    !isNonEmptyRecord(data?.temp)
+  ) {
+    return null;
+  }
+
+  const validtime = toFiniteNumber(data.validtime);
+  if (!Number.isInteger(validtime) || validtime < 0 || validtime > 23) {
+    return null;
+  }
+
+  const direction = {};
+  const speed = {};
+  const temp = {};
+  for (const altitude of ALOFT_ALTITUDE_KEYS) {
+    const normalizedDirection = toFiniteNumber(data.direction[altitude]);
+    const normalizedSpeed = toFiniteNumber(data.speed[altitude]);
+    const normalizedTemp = toFiniteNumber(data.temp[altitude]);
+    if (
+      normalizedDirection === null ||
+      normalizedDirection < 0 ||
+      normalizedDirection > 360 ||
+      normalizedSpeed === null ||
+      normalizedSpeed < 0 ||
+      normalizedTemp === null
+    ) {
+      return null;
+    }
+
+    direction[altitude] = normalizedDirection;
+    speed[altitude] = normalizedSpeed;
+    temp[altitude] = normalizedTemp;
+  }
+
+  return {
+    ...data,
+    direction,
+    speed,
+    temp,
+    validtime: `${validtime}`,
+  };
+};
+
+const parseReceivedAt = (value, now) => {
+  const parsed = typeof value === "string" ? Date.parse(value) : NaN;
+  if (!Number.isFinite(parsed) || parsed > now + MAX_FUTURE_SKEW_MS) {
+    return null;
+  }
+
+  return parsed;
+};
+
 const isWindReport = (wind) =>
   wind &&
+  typeof wind.receivedAt === "string" &&
   Number.isFinite(wind.speed) &&
   isNullableFiniteNumber(wind.direction) &&
   isNullableFiniteNumber(wind.gustSpeed) &&
@@ -50,18 +170,107 @@ const isSkyCondition = (condition) =>
 
 const isWeatherReport = (weather) =>
   weather &&
+  typeof weather.receivedAt === "string" &&
   typeof weather.metar === "string" &&
   Number.isFinite(weather.temperature) &&
   (weather.presentWeather === null ||
     typeof weather.presentWeather === "string") &&
   Array.isArray(weather.skyCondition) &&
-  weather.skyCondition.length > 0 &&
-  weather.skyCondition.slice(0, 3).every(isSkyCondition);
+    weather.skyCondition.length > 0 &&
+    weather.skyCondition.slice(0, 3).every(isSkyCondition);
+
+const normalizeHistoryRow = (row, now) => {
+  if (!row || typeof row !== "object") {
+    return null;
+  }
+
+  const measuredAt = parseReceivedAt(row.received_time, now);
+  const speed = toFiniteNumber(row.wind_speed);
+  const gustSpeed = toFiniteNumber(row.gust_speed);
+  const direction = toFiniteNumber(row.direction);
+  if (
+    measuredAt === null ||
+    speed === null ||
+    speed < 0 ||
+    gustSpeed === null ||
+    gustSpeed < 0 ||
+    direction === null ||
+    direction < 0 ||
+    direction > 360
+  ) {
+    return null;
+  }
+
+  return {
+    ...row,
+    direction,
+    gust_speed: gustSpeed,
+    measuredAt,
+    received_time: new Date(measuredAt).toISOString(),
+    wind_speed: speed,
+  };
+};
+
+const ageLabel = (ageMs) => {
+  const safeAgeMs = Math.max(0, ageMs || 0);
+  if (safeAgeMs < 60000) {
+    return `${Math.floor(safeAgeMs / 1000)}s ago`;
+  }
+
+  return `${Math.floor(safeAgeMs / 60000)}m ago`;
+};
+
+const createPollingStatus = (lastSuccessAt, error, now) => {
+  const ageMs =
+    lastSuccessAt === null ? null : Math.max(0, now - lastSuccessAt);
+  return {
+    ageLabel: ageMs === null ? null : ageLabel(ageMs),
+    ageMs,
+    error,
+    hasSample: lastSuccessAt !== null,
+    isCurrent: error === null && lastSuccessAt !== null,
+    lastSuccessAt,
+    state: error ? "error" : lastSuccessAt === null ? "loading" : "current",
+  };
+};
+
+const formatWindStatusText = (status, updatedAge) => {
+  if (status === "live") {
+    return `LIVE — updated ${updatedAge}`;
+  }
+  if (status === "backup") {
+    return `BACKUP WIND — 1-minute sample, updated ${updatedAge}`;
+  }
+  if (status === "stale") {
+    return `WIND DATA STALE — last reading ${updatedAge}`;
+  }
+  if (status === "offline") {
+    return `OFFLINE — last reading ${updatedAge}`;
+  }
+  if (status === "connecting") {
+    return "CONNECTING TO WIND DATA";
+  }
+
+  return "WIND DATA UNAVAILABLE";
+};
 
 const WindSpeedProvider = ({ children }) => {
-  const [speed, setSpeed] = useState(0);
-  const [gustSpeed, setGustSpeed] = useState(null);
-  const [direction, setDirection] = useState(0);
+  const [webSocketWind, setWebSocketWind] = useState(null);
+  const [restWind, setRestWind] = useState(null);
+  const [socketState, setSocketState] = useState("connecting");
+  const [activeSocketId, setActiveSocketId] = useState(0);
+  const [isOnline, setIsOnline] = useState(
+    () => typeof navigator === "undefined" || navigator.onLine !== false
+  );
+  const [statusClock, setStatusClock] = useState(() => Date.now());
+  const [clientStatusClock, setClientStatusClock] = useState(() => Date.now());
+  const [weatherMeasuredAt, setWeatherMeasuredAt] = useState(null);
+  const [historyLastSuccessAt, setHistoryLastSuccessAt] = useState(null);
+  const [historyError, setHistoryError] = useState(null);
+  const latestWebSocketWindAt = useRef(null);
+  const latestWeatherAt = useRef(null);
+  const socketSequence = useRef(0);
+  const serverClockOffset = useRef(0);
   const [metar, setMetar] = useState(null);
   const [temp, setTemp] = useState(null);
   const [tempC, setTempC] = useState(null);
@@ -77,7 +286,6 @@ const WindSpeedProvider = ({ children }) => {
   const [metarAbbr, setMetarAbbr] = useState("");
   const [metarDesc, setMetarDesc] = useState("");
   const [gustData, setGustData] = useState([]);
-  const [isAwosLive, setIsAwosLive] = useState(false);
   const [darkTheme, setDarkTheme] = useState(
     localStorage.getItem("darkTheme") || "true"
   );
@@ -91,6 +299,8 @@ const WindSpeedProvider = ({ children }) => {
   const [temps, setTemps] = useState({});
   const [speeds, setSpeeds] = useState({});
   const [received, setReceived] = useState(null);
+  const [aloftLastSuccessAt, setAloftLastSuccessAt] = useState(null);
+  const [aloftError, setAloftError] = useState(null);
   const [dewPoint, setDewPoint] = useState(null);
   const [pressure, setPressure] = useState(null);
   const [densityAlt, setDensityAlt] = useState(null);
@@ -101,8 +311,8 @@ const WindSpeedProvider = ({ children }) => {
   const [sunset24, setSunset24] = useState(null);
   const [sunrise24, setSunrise24] = useState(null);
   const [twilight24, setTwilight24] = useState(null);
-  const [variableDirection1, setVariableDirection1] = useState("");
-  const [variableDirection2, setVariableDirection2] = useState("");
+  const [astronomyLastSuccessAt, setAstronomyLastSuccessAt] = useState(null);
+  const [astronomyError, setAstronomyError] = useState(null);
   const [jumpruns, setJumpruns] = useState([]);
   const [newSpot, setNewSpot] = useState("");
   const [newOffset, setNewOffset] = useState("");
@@ -120,49 +330,226 @@ const WindSpeedProvider = ({ children }) => {
     localStorage.getItem("timeFormat") || "true"
   );
 
-  const historicalMaxGust = gustData[0]?.error
-    ? 0
-    : Math.max(...gustData.map((gust) => gust.gust_speed));
-  const historicalMaxSpeed = gustData[0]?.error
-    ? 0
-    : Math.max(...gustData.map((gust) => gust.wind_speed));
+  const webSocketWindAge = webSocketWind
+    ? Math.max(0, statusClock - webSocketWind.measuredAt)
+    : null;
+  const restWindAge = restWind
+    ? Math.max(0, statusClock - restWind.measuredAt)
+    : null;
+  const webSocketWindIsFresh =
+    isOnline &&
+    socketState === "connected" &&
+    webSocketWind?.socketId === activeSocketId &&
+    webSocketWindAge !== null &&
+    webSocketWindAge <= WIND_LIVE_MS;
+  const restWindIsFresh =
+    isOnline && restWindAge !== null && restWindAge <= REST_FALLBACK_MS;
+
+  let currentWind = null;
+  let windState = "connecting";
+  if (!isOnline) {
+    currentWind = [webSocketWind, restWind]
+      .filter(Boolean)
+      .sort((left, right) => right.measuredAt - left.measuredAt)[0] || null;
+    windState = currentWind ? "offline" : "unavailable";
+  } else if (webSocketWindIsFresh) {
+    currentWind = webSocketWind;
+    windState = "live";
+  } else if (restWindIsFresh) {
+    currentWind = restWind;
+    windState = "backup";
+  } else {
+    currentWind = [webSocketWind, restWind]
+      .filter(Boolean)
+      .sort((left, right) => right.measuredAt - left.measuredAt)[0] || null;
+    windState = currentWind
+      ? "stale"
+      : socketState === "disconnected"
+        ? "unavailable"
+        : "connecting";
+  }
+
+  const currentWindAge = currentWind
+    ? Math.max(0, statusClock - currentWind.measuredAt)
+    : null;
+  const windStatusDetail = {
+    ageLabel: currentWindAge === null ? null : ageLabel(currentWindAge),
+    ageMs: currentWindAge,
+    hasSample: Boolean(currentWind),
+    isCurrent: windState === "live" || windState === "backup",
+    measuredAt: currentWind?.measuredAt || null,
+    source: currentWind?.source || null,
+    state: windState,
+  };
+  const windStatus = windState;
+  const windSource = currentWind?.source || "none";
+  const windUpdatedAt = currentWind?.measuredAt
+    ? new Date(currentWind.measuredAt).toISOString()
+    : null;
+  const windAgeMs = currentWindAge;
+  const windStatusText = formatWindStatusText(
+    windStatus,
+    windStatusDetail.ageLabel
+  );
+  const weatherAge =
+    weatherMeasuredAt === null
+      ? null
+      : Math.max(0, statusClock - weatherMeasuredAt);
+  const weatherStatus = {
+    ageLabel: weatherAge === null ? null : ageLabel(weatherAge),
+    ageMs: weatherAge,
+    hasSample: weatherMeasuredAt !== null,
+    isCurrent:
+      isOnline &&
+      weatherAge !== null &&
+      weatherAge <= WEATHER_LIVE_MS,
+    measuredAt: weatherMeasuredAt,
+    state: !isOnline
+      ? weatherMeasuredAt === null
+        ? "unavailable"
+        : "offline"
+      : weatherMeasuredAt === null
+        ? "loading"
+        : weatherAge <= WEATHER_LIVE_MS
+          ? "live"
+          : "stale",
+  };
+  const historyStatus = {
+    ageLabel: restWindAge === null ? null : ageLabel(restWindAge),
+    ageMs: restWindAge,
+    error: historyError,
+    hasSample: Boolean(restWind),
+    isCurrent: restWindIsFresh && historyError === null,
+    lastSuccessAt: historyLastSuccessAt,
+    measuredAt: restWind?.measuredAt || null,
+    state: !isOnline
+      ? restWind
+        ? "offline"
+        : "unavailable"
+      : historyError
+        ? "error"
+        : restWindIsFresh
+          ? "current"
+          : restWind
+            ? "stale"
+            : "loading",
+  };
+  const gustHistoryStatus = historyStatus;
+  const aloftStatus = createPollingStatus(
+    aloftLastSuccessAt,
+    aloftError,
+    clientStatusClock
+  );
+  const astronomyStatus = createPollingStatus(
+    astronomyLastSuccessAt,
+    astronomyError,
+    clientStatusClock
+  );
+
+  const speed = currentWind?.speed ?? 0;
+  const gustSpeed = currentWind?.gustSpeed ?? null;
+  const direction = currentWind?.direction ?? 0;
+  const variableDirection1 = currentWind?.variableDirection?.[0] || "";
+  const variableDirection2 = currentWind?.variableDirection?.[1] || "";
+  const isAwosLive = windStatus === "live";
+  const canEvaluateWindSafety =
+    windStatus === "live" && historyStatus.isCurrent;
+  const validGustData = gustData[0]?.error ? [] : gustData;
+  const historicalMaxGust = validGustData.length
+    ? Math.max(...validGustData.map((gust) => gust.gust_speed))
+    : 0;
+  const historicalMaxSpeed = validGustData.length
+    ? Math.max(...validGustData.map((gust) => gust.wind_speed))
+    : 0;
   const maxGust =
     historicalMaxGust < gustSpeed ? gustSpeed : historicalMaxGust;
   const maxSpeed = historicalMaxSpeed < speed ? speed : historicalMaxSpeed;
 
   useEffect(() => {
+    const timer = setInterval(() => {
+      const now = Date.now();
+      setClientStatusClock(now);
+      setStatusClock(now + serverClockOffset.current);
+    }, STATUS_TICK_MS);
+    return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    let hasJumprunSuccess = false;
+
     const stopWind = startPolling({
       intervalMs: THIRTY_SECONDS,
-      request: (options) => fetchJson("/api/weather/gusts", options),
-      onResult: (data) => {
+      request: fetchWindHistory,
+      onResult: ({ data, serverNow }) => {
+        const clientNow = Date.now();
+        const now = serverNow ?? clientNow;
+        if (serverNow !== null) {
+          serverClockOffset.current = serverNow - clientNow;
+        }
         if (!Array.isArray(data) || data.length === 0) {
-          setGustData([{ error: "no gust data found" }]);
+          setGustData((current) =>
+            current.length ? current : [{ error: "no gust data found" }]
+          );
+          setHistoryError("No gust data found");
         } else {
-          setGustData([...data]);
+          const normalizedData = data
+            .map((row) => normalizeHistoryRow(row, now))
+            .filter(Boolean)
+            .sort((left, right) => left.measuredAt - right.measuredAt);
+          const hasInvalidRows = normalizedData.length !== data.length;
+
+          if (normalizedData.length === 0) {
+            setGustData((current) =>
+              current.length ? current : [{ error: "no valid gust data found" }]
+            );
+            setHistoryError("No valid gust data found");
+            return;
+          }
+
+          const latest = normalizedData.at(-1);
+          setGustData(normalizedData);
+          setRestWind({
+            direction: latest.direction,
+            gustSpeed: latest.gust_speed || null,
+            measuredAt: latest.measuredAt,
+            source: "gust-history",
+            speed: latest.wind_speed,
+            variableDirection: null,
+          });
+          setHistoryError(
+            hasInvalidRows ? "Wind history contained invalid rows" : null
+          );
+          setHistoryLastSuccessAt(now);
+          setStatusClock(now);
         }
       },
+      onError: () => setHistoryError("Wind history request failed"),
     });
 
     const stopAloft = startPolling({
       intervalMs: THREE_MINUTES,
       request: (options) => fetchJson("/api/weather/aloft", options),
       onResult: (data) => {
-        const winds = data?.direction
-          ? data
-          : { error: data?.error || "no wind aloft info found!" };
-
-        if (winds.error) {
-          setDirections(winds);
-          setTemps({});
-          setSpeeds({});
-          setReceived(null);
-        } else {
-          setDirections(winds.direction);
-          setTemps(winds.temp);
-          setSpeeds(winds.speed);
-          setReceived(winds.validtime);
+        const winds = normalizeAloftPayload(data);
+        if (!winds) {
+          setAloftError(
+            typeof data?.error === "string" && data.error.trim()
+              ? data.error
+              : "Winds aloft data was invalid"
+          );
+          return;
         }
+
+        setDirections(winds.direction);
+        setTemps(winds.temp);
+        setSpeeds(winds.speed);
+        setReceived(winds.validtime);
+        const now = Date.now();
+        setAloftLastSuccessAt(now);
+        setClientStatusClock(now);
+        setAloftError(null);
       },
+      onError: () => setAloftError("Winds aloft request failed"),
     });
 
     const stopJumprun = startPolling({
@@ -170,7 +557,7 @@ const WindSpeedProvider = ({ children }) => {
       request: (options) => fetchJson("/api/jumpruns/", options),
       onResult: (data) => {
         if (!Array.isArray(data?.jumpruns)) {
-          if (data && typeof data === "object") {
+          if (data && typeof data === "object" && !hasJumprunSuccess) {
             setJumpruns(data);
             setNewSpot("");
             setNewOffset("");
@@ -178,6 +565,7 @@ const WindSpeedProvider = ({ children }) => {
           return;
         }
 
+        hasJumprunSuccess = true;
         setJumpruns(data.jumpruns);
         const latestJumprun = data.jumpruns[0];
         setNewSpot(formatJumprunAdjustment(latestJumprun?.spot));
@@ -189,7 +577,32 @@ const WindSpeedProvider = ({ children }) => {
       intervalMs: TEN_MINUTES,
       request: (options) => fetchJson("/api/weather/astronomy", options),
       onResult: (data) => {
-        if (!data?.results) {
+        const astronomy = data?.results;
+        const timestamps = [
+          astronomy?.sunset,
+          astronomy?.sunrise,
+          astronomy?.civil_twilight_end,
+        ];
+        if (
+          !astronomy ||
+          timestamps.some(
+            (timestamp) =>
+              typeof timestamp !== "string" || timestamp.trim() === ""
+          )
+        ) {
+          setAstronomyError("Astronomy data was invalid");
+          return;
+        }
+
+        const [sunsetDate, sunriseDate, twilightDate] = timestamps.map(
+          (timestamp) => new Date(timestamp)
+        );
+        if (
+          [sunsetDate, sunriseDate, twilightDate].some((date) =>
+            Number.isNaN(date.getTime())
+          )
+        ) {
+          setAstronomyError("Astronomy data was invalid");
           return;
         }
 
@@ -206,27 +619,22 @@ const WindSpeedProvider = ({ children }) => {
           timeZone: "America/Chicago",
         };
 
-        const sunsetFormat = new Date(data.results.sunset).toLocaleTimeString(
+        const sunsetFormat = sunsetDate.toLocaleTimeString(
           "en-US",
           options
         );
-        const sunriseFormat = new Date(data.results.sunrise).toLocaleTimeString(
+        const sunriseFormat = sunriseDate.toLocaleTimeString(
           "en-US",
           options
         );
-        const twilightFormat = new Date(
-          data.results.civil_twilight_end
-        ).toLocaleTimeString("en-US", options);
+        const twilightFormat = twilightDate.toLocaleTimeString("en-US", options);
 
-        const sunsetFormat24 = new Date(
-          data.results.sunset
-        ).toLocaleTimeString("en-US", options24);
-        const sunriseFormat24 = new Date(
-          data.results.sunrise
-        ).toLocaleTimeString("en-US", options24);
-        const twilightFormat24 = new Date(
-          data.results.civil_twilight_end
-        ).toLocaleTimeString("en-US", options24);
+        const sunsetFormat24 = sunsetDate.toLocaleTimeString("en-US", options24);
+        const sunriseFormat24 = sunriseDate.toLocaleTimeString("en-US", options24);
+        const twilightFormat24 = twilightDate.toLocaleTimeString(
+          "en-US",
+          options24
+        );
 
         setSunset(sunsetFormat);
         setSunrise(sunriseFormat);
@@ -234,10 +642,46 @@ const WindSpeedProvider = ({ children }) => {
         setSunset24(sunsetFormat24);
         setSunrise24(sunriseFormat24);
         setTwilight24(twilightFormat24);
+        const now = Date.now();
+        setAstronomyLastSuccessAt(now);
+        setClientStatusClock(now);
+        setAstronomyError(null);
       },
+      onError: () => setAstronomyError("Astronomy request failed"),
     });
 
+    const recoverPolling = () => {
+      if (
+        typeof document !== "undefined" &&
+        document.visibilityState === "hidden"
+      ) {
+        return;
+      }
+      for (const stopPolling of [
+        stopWind,
+        stopAloft,
+        stopJumprun,
+        stopAstronomy,
+      ]) {
+        void stopPolling.runNow();
+      }
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        recoverPolling();
+      }
+    };
+
+    window.addEventListener("focus", recoverPolling);
+    window.addEventListener("online", recoverPolling);
+    window.addEventListener("pageshow", recoverPolling);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
     return () => {
+      window.removeEventListener("focus", recoverPolling);
+      window.removeEventListener("online", recoverPolling);
+      window.removeEventListener("pageshow", recoverPolling);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
       stopWind();
       stopAloft();
       stopJumprun();
@@ -283,7 +727,9 @@ const WindSpeedProvider = ({ children }) => {
     let ackTimer = null;
     let dataTimer = null;
     let websocket = null;
+    let online = typeof navigator === "undefined" || navigator.onLine !== false;
     let connect;
+    const currentTime = () => Date.now() + serverClockOffset.current;
 
     const clearConnectionTimers = () => {
       if (ackTimer) {
@@ -304,25 +750,28 @@ const WindSpeedProvider = ({ children }) => {
     };
 
     const scheduleReconnect = () => {
-      if (disposed || retryTimer) {
+      if (disposed || retryTimer || !online) {
         return;
       }
 
       const delay = retryDelay;
+      const jitterFactor = 0.8 + Math.random() * 0.2;
+      const scheduledDelay = Math.max(1, Math.floor(delay * jitterFactor));
       retryDelay = Math.min(retryDelay * 2, MAX_SOCKET_RETRY_MS);
       retryTimer = setTimeout(() => {
         retryTimer = null;
         connect();
-      }, delay);
+      }, scheduledDelay);
     };
 
-    const disconnect = (target) => {
+    const disconnect = (target, { reconnect = true } = {}) => {
       if (disposed || websocket !== target) {
         return;
       }
 
       websocket = null;
-      setIsAwosLive(false);
+      setSocketState("disconnected");
+      setStatusClock(currentTime());
       clearConnectionTimers();
       detach(target);
       if (
@@ -335,17 +784,20 @@ const WindSpeedProvider = ({ children }) => {
           // Reconnection below still handles a browser close failure.
         }
       }
-      scheduleReconnect();
+      if (reconnect) {
+        scheduleReconnect();
+      }
     };
 
-    const armDataDeadline = (target) => {
+    const armDataDeadline = (target, measuredAt = currentTime()) => {
       if (dataTimer) {
         clearTimeout(dataTimer);
       }
-      dataTimer = setTimeout(
-        () => disconnect(target),
-        SOCKET_DATA_TIMEOUT_MS
+      const remainingFreshTime = Math.max(
+        0,
+        Math.min(WIND_LIVE_MS, measuredAt + WIND_LIVE_MS - currentTime())
       );
+      dataTimer = setTimeout(() => disconnect(target), remainingFreshTime);
     };
 
     const sendSubscriptions = (target) => {
@@ -366,20 +818,24 @@ const WindSpeedProvider = ({ children }) => {
     };
 
     connect = () => {
-      if (disposed || websocket) {
+      if (disposed || websocket || !online) {
         return;
       }
 
+      setSocketState("connecting");
       let currentSocket;
       try {
         currentSocket = new WebSocket("wss://api.skydivecsc.com/graphql", [
           "graphql-ws",
         ]);
       } catch {
-        setIsAwosLive(false);
+        setSocketState("disconnected");
         scheduleReconnect();
         return;
       }
+      const socketId = socketSequence.current + 1;
+      socketSequence.current = socketId;
+      setActiveSocketId(socketId);
       websocket = currentSocket;
       let subscriptionsStarted = false;
       ackTimer = setTimeout(
@@ -420,6 +876,7 @@ const WindSpeedProvider = ({ children }) => {
           subscriptionsStarted = true;
           clearTimeout(ackTimer);
           ackTimer = null;
+          setSocketState("connected");
           armDataDeadline(currentSocket);
           try {
             sendSubscriptions(currentSocket);
@@ -452,15 +909,36 @@ const WindSpeedProvider = ({ children }) => {
 
         if (res.id === "wind" && isWindReport(res.payload?.data?.wind)) {
           const wind = res.payload.data.wind;
+          const measuredAt = parseReceivedAt(wind.receivedAt, currentTime());
+          if (measuredAt === null) {
+            disconnect(currentSocket);
+            return;
+          }
+          if (
+            latestWebSocketWindAt.current !== null &&
+            measuredAt <= latestWebSocketWindAt.current
+          ) {
+            return;
+          }
 
-          setVariableDirection1(wind?.variableDirection?.[0] || "");
-          setVariableDirection2(wind?.variableDirection?.[1] || "");
-          setSpeed(wind.speed);
-          setGustSpeed(wind?.gustSpeed || null);
-          setDirection(wind?.direction || 0);
-          armDataDeadline(currentSocket);
-          setIsAwosLive(true);
+          latestWebSocketWindAt.current = measuredAt;
+          setWebSocketWind({
+            direction: wind.direction || 0,
+            gustSpeed: wind.gustSpeed || null,
+            measuredAt,
+            socketId,
+            source: "websocket",
+            speed: wind.speed,
+            variableDirection: wind.variableDirection,
+          });
+          setStatusClock(currentTime());
+          armDataDeadline(currentSocket, measuredAt);
           retryDelay = INITIAL_SOCKET_RETRY_MS;
+          return;
+        }
+
+        if (res.id === "wind") {
+          disconnect(currentSocket);
           return;
         }
 
@@ -469,6 +947,20 @@ const WindSpeedProvider = ({ children }) => {
           isWeatherReport(res.payload?.data?.weather)
         ) {
           const weather = res.payload.data.weather;
+          const measuredAt = parseReceivedAt(weather.receivedAt, currentTime());
+          if (measuredAt === null) {
+            disconnect(currentSocket);
+            return;
+          }
+          if (
+            latestWeatherAt.current !== null &&
+            measuredAt <= latestWeatherAt.current
+          ) {
+            return;
+          }
+          latestWeatherAt.current = measuredAt;
+          setWeatherMeasuredAt(measuredAt);
+          setStatusClock(currentTime());
 
           setPressure(weather?.altimeterSetting || null);
           setDensityAlt(weather?.densityAltitude || null);
@@ -599,9 +1091,6 @@ const WindSpeedProvider = ({ children }) => {
           setCloudCeiling3("");
           setCloudCeilingM3("");
         }
-          armDataDeadline(currentSocket);
-          setIsAwosLive(true);
-          retryDelay = INITIAL_SOCKET_RETRY_MS;
           return;
         }
 
@@ -614,10 +1103,78 @@ const WindSpeedProvider = ({ children }) => {
       currentSocket.onclose = () => disconnect(currentSocket);
     };
 
+    const recoverConnection = () => {
+      if (
+        disposed ||
+        !online ||
+        (typeof document !== "undefined" &&
+          document.visibilityState === "hidden")
+      ) {
+        return;
+      }
+
+      const latestWindAge =
+        latestWebSocketWindAt.current === null
+          ? null
+          : currentTime() - latestWebSocketWindAt.current;
+      if (
+        websocket &&
+        (websocket.readyState === WebSocket.CONNECTING ||
+          (latestWindAge !== null && latestWindAge <= WIND_LIVE_MS))
+      ) {
+        return;
+      }
+
+      if (retryTimer) {
+        clearTimeout(retryTimer);
+        retryTimer = null;
+      }
+      if (websocket) {
+        disconnect(websocket, { reconnect: false });
+      }
+      connect();
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        recoverConnection();
+      }
+    };
+    const handleOffline = () => {
+      online = false;
+      setIsOnline(false);
+      setStatusClock(currentTime());
+      if (retryTimer) {
+        clearTimeout(retryTimer);
+        retryTimer = null;
+      }
+      if (websocket) {
+        disconnect(websocket, { reconnect: false });
+      } else {
+        setSocketState("disconnected");
+      }
+    };
+    const handleOnline = () => {
+      online = true;
+      setIsOnline(true);
+      setStatusClock(currentTime());
+      recoverConnection();
+    };
+
+    window.addEventListener("focus", recoverConnection);
+    window.addEventListener("offline", handleOffline);
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("pageshow", recoverConnection);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
     connect();
 
     return () => {
       disposed = true;
+      window.removeEventListener("focus", recoverConnection);
+      window.removeEventListener("offline", handleOffline);
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("pageshow", recoverConnection);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
       if (retryTimer) {
         clearTimeout(retryTimer);
         retryTimer = null;
@@ -667,6 +1224,10 @@ const WindSpeedProvider = ({ children }) => {
         metarAbbr,
         metarDesc,
         gustData,
+        gustHistoryStatus,
+        historyStatus,
+        aloftStatus,
+        astronomyStatus,
         darkTheme,
         setDarkTheme,
         unitSetting,
@@ -694,6 +1255,14 @@ const WindSpeedProvider = ({ children }) => {
         speedUnit,
         setSpeedUnit,
         isAwosLive,
+        canEvaluateWindSafety,
+        windAgeMs,
+        windSource,
+        windStatus,
+        windStatusDetail,
+        windStatusText,
+        windUpdatedAt,
+        weatherStatus,
         timeFormat,
         setTimeFormat,
       }}
