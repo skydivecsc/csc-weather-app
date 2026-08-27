@@ -108,6 +108,33 @@ describe("startPolling", () => {
     stop();
   });
 
+  it("runs on demand and queues one recovery behind an active request", async () => {
+    const first = deferred();
+    const request = vi
+      .fn()
+      .mockImplementationOnce(() => first.promise)
+      .mockResolvedValueOnce("recovered");
+    const onResult = vi.fn();
+    const stop = startPolling({
+      intervalMs: 60000,
+      request,
+      onResult,
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(request).toHaveBeenCalledOnce();
+    void stop.runNow();
+    void stop.runNow();
+    expect(request).toHaveBeenCalledOnce();
+
+    first.resolve("first");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(onResult).toHaveBeenNthCalledWith(1, "first");
+    expect(onResult).toHaveBeenNthCalledWith(2, "recovered");
+    stop();
+  });
+
   it("aborts on cleanup and suppresses a late result", async () => {
     const pending = deferred();
     let signal;

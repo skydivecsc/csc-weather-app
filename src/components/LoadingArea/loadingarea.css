@@ -57,6 +57,29 @@
   justify-content: center;
   align-items: center;
 }
+.loading-wind-status {
+  font-size: calc(7px + 0.8vmin);
+  font-weight: 700;
+  margin-top: 0.5rem;
+  text-align: center;
+}
+.loading-wind-live {
+  color: rgb(8, 228, 209);
+}
+.loading-wind-backup {
+  color: rgb(255, 216, 0);
+}
+.loading-wind-connecting,
+.loading-wind-offline,
+.loading-wind-stale,
+.loading-wind-unavailable {
+  color: rgb(243, 16, 16);
+}
+.loading-wind-aged .wind-speed-loading,
+.loading-wind-aged .wind-gusts,
+.loading-wind-aged .wind-direction {
+  opacity: 0.65;
+}
 .gust {
   display: flex;
   flex-direction: column;

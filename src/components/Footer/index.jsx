@@ -8,15 +8,7 @@ function Footer() {
 
   return (
     <div className="metar-container">
-      <p>
-        <a
-          href="https://www.linkedin.com/in/ryan-erickson-dev"
-          target="_blank"
-          rel="noreferrer"
-        >
-          Created by: Ryan Erickson
-        </a>
-      </p>
+      <p>Created by: Ryan Erickson</p>
 
       {jumpruns[0] ? (
         jumpruns[0].beerLight ? (

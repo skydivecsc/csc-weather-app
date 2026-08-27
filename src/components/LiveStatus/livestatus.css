@@ -9,6 +9,14 @@
     text-shadow: 1px 1px 3px black;
 }
 
+.live-backup {
+    color: rgb(255, 216, 0);
+}
+
+.live-connecting {
+    color: rgb(230, 230, 230);
+}
+
 @keyframes blink {
     0% {
         opacity: 1;

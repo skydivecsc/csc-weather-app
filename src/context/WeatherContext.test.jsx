@@ -6,6 +6,13 @@ import { WeatherContext } from "./WeatherContextValue";
 
 const socketInstances = [];
 
+const response = (body, status = 200) => ({
+  headers: { get: () => null },
+  json: vi.fn().mockResolvedValue(body),
+  ok: status >= 200 && status < 300,
+  status,
+});
+
 class MockWebSocket {
   static CONNECTING = 0;
   static OPEN = 1;
@@ -28,11 +35,26 @@ class MockWebSocket {
 }
 
 function SocketProbe() {
-  const { isAwosLive, speed } = useContext(WeatherContext);
+  const {
+    canEvaluateWindSafety,
+    gustHistoryStatus,
+    isAwosLive,
+    speed,
+    weatherStatus,
+    windSource,
+    windStatus,
+  } = useContext(WeatherContext);
   return (
     <>
       <div data-testid="socket-status">{isAwosLive ? "LIVE" : "DOWN"}</div>
       <div data-testid="socket-speed">{speed}</div>
+      <div data-testid="weather-status">{weatherStatus.state}</div>
+      <div data-testid="wind-source">{windSource}</div>
+      <div data-testid="wind-state">{windStatus}</div>
+      <div data-testid="gust-history-state">{gustHistoryStatus.state}</div>
+      <div data-testid="safety-ready">
+        {canEvaluateWindSafety ? "ready" : "incomplete"}
+      </div>
     </>
   );
 }
@@ -55,7 +77,10 @@ const sendWindReport = (socket, wind) => {
         id: "wind",
         payload: {
           data: {
-            wind,
+            wind: {
+              receivedAt: new Date(Date.now()).toISOString(),
+              ...wind,
+            },
           },
         },
         type: "data",
@@ -80,6 +105,7 @@ const sendWeather = (socket, temperature = 70) => {
         payload: {
           data: {
             weather: {
+              receivedAt: new Date(Date.now()).toISOString(),
               metar: "KAAA 010000Z CLR 70 50 A3000",
               presentWeather: null,
               skyCondition: [{ altitude: null, cloudCover: "CLR" }],
@@ -96,6 +122,7 @@ const sendWeather = (socket, temperature = 70) => {
 describe("WeatherProvider WebSocket lifecycle", () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(1);
     socketInstances.length = 0;
     vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {})));
     vi.stubGlobal("WebSocket", MockWebSocket);
@@ -103,6 +130,7 @@ describe("WeatherProvider WebSocket lifecycle", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
 
@@ -196,6 +224,7 @@ describe("WeatherProvider WebSocket lifecycle", () => {
     await act(() => vi.advanceTimersByTimeAsync(1));
     expect(socket.close).toHaveBeenCalledOnce();
     expect(screen.getByTestId("socket-status")).toHaveTextContent("DOWN");
+    expect(screen.getByTestId("wind-state")).toHaveTextContent("unavailable");
     unmount();
   });
 
@@ -229,6 +258,163 @@ describe("WeatherProvider WebSocket lifecycle", () => {
     await act(() => vi.advanceTimersByTimeAsync(1));
     expect(socket.close).toHaveBeenCalledOnce();
     expect(screen.getByTestId("socket-status")).toHaveTextContent("DOWN");
+    unmount();
+  });
+
+  it("ignores duplicate and out-of-order wind timestamps without extending freshness", async () => {
+    vi.setSystemTime(new Date("2026-08-27T18:00:00Z"));
+    const { unmount } = renderProvider();
+    const socket = socketInstances[0];
+    openAndAcknowledge(socket);
+    const firstTimestamp = new Date(Date.now()).toISOString();
+
+    sendWindReport(socket, {
+      direction: 180,
+      gustSpeed: 15,
+      receivedAt: firstTimestamp,
+      speed: 12,
+      variableDirection: null,
+    });
+    await act(() => vi.advanceTimersByTimeAsync(10000));
+    sendWindReport(socket, {
+      direction: 190,
+      gustSpeed: 20,
+      receivedAt: firstTimestamp,
+      speed: 99,
+      variableDirection: null,
+    });
+    sendWindReport(socket, {
+      direction: 200,
+      gustSpeed: 20,
+      receivedAt: "2026-08-27T17:59:59Z",
+      speed: 98,
+      variableDirection: null,
+    });
+
+    expect(screen.getByTestId("socket-speed")).toHaveTextContent("12");
+    await act(() => vi.advanceTimersByTimeAsync(4999));
+    expect(socket.close).not.toHaveBeenCalled();
+    await act(() => vi.advanceTimersByTimeAsync(1));
+    expect(socket.close).toHaveBeenCalledOnce();
+    expect(screen.getByTestId("wind-state")).toHaveTextContent("stale");
+    unmount();
+  });
+
+  it("keeps weather current without letting weather frames extend wind freshness", async () => {
+    vi.setSystemTime(new Date("2026-08-27T18:00:00Z"));
+    const { unmount } = renderProvider();
+    const socket = socketInstances[0];
+    openAndAcknowledge(socket);
+    sendWind(socket, 12);
+
+    await act(() => vi.advanceTimersByTimeAsync(10000));
+    sendWeather(socket);
+    expect(screen.getByTestId("weather-status")).toHaveTextContent("live");
+
+    await act(() => vi.advanceTimersByTimeAsync(5000));
+    expect(socket.close).toHaveBeenCalledOnce();
+    expect(screen.getByTestId("wind-state")).toHaveTextContent("stale");
+    expect(screen.getByTestId("weather-status")).toHaveTextContent("live");
+    unmount();
+  });
+
+  it("enables safety evaluation only with live wind and current history", async () => {
+    vi.setSystemTime(new Date("2026-08-27T18:00:00Z"));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url) => {
+        if (url.endsWith("/api/weather/gusts")) {
+          return Promise.resolve(response([{
+            direction: "180",
+            gust_speed: "15",
+            received_time: "2026-08-27T18:00:00Z",
+            wind_speed: "12",
+          }]));
+        }
+        return new Promise(() => {});
+      })
+    );
+    const { unmount } = renderProvider();
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(screen.getByTestId("gust-history-state")).toHaveTextContent("current");
+    expect(screen.getByTestId("safety-ready")).toHaveTextContent("incomplete");
+
+    const socket = socketInstances[0];
+    openAndAcknowledge(socket);
+    sendWind(socket, 12);
+    expect(screen.getByTestId("safety-ready")).toHaveTextContent("ready");
+
+    await act(() => vi.advanceTimersByTimeAsync(15000));
+    expect(screen.getByTestId("safety-ready")).toHaveTextContent("incomplete");
+    unmount();
+  });
+
+  it("fails safety evaluation when current history polling errors", async () => {
+    vi.setSystemTime(new Date("2026-08-27T18:00:00Z"));
+    let gustCalls = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url) => {
+        if (url.endsWith("/api/weather/gusts")) {
+          gustCalls += 1;
+          return gustCalls === 1
+            ? Promise.resolve(response([{
+                direction: "180",
+                gust_speed: "15",
+                received_time: "2026-08-27T18:00:00Z",
+                wind_speed: "12",
+              }]))
+            : Promise.reject(new Error("offline"));
+        }
+        return new Promise(() => {});
+      })
+    );
+    const { unmount } = renderProvider();
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    const socket = socketInstances[0];
+    openAndAcknowledge(socket);
+    sendWind(socket, 12);
+    expect(screen.getByTestId("safety-ready")).toHaveTextContent("ready");
+
+    act(() => window.dispatchEvent(new Event("focus")));
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(screen.getByTestId("gust-history-state")).toHaveTextContent("error");
+    expect(screen.getByTestId("safety-ready")).toHaveTextContent("incomplete");
+    unmount();
+  });
+
+  it("fails safety evaluation when gust history ages out while wind stays live", async () => {
+    vi.setSystemTime(new Date("2026-08-27T18:00:00Z"));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url) => {
+        if (url.endsWith("/api/weather/gusts")) {
+          return Promise.resolve(response([{
+            direction: "180",
+            gust_speed: "15",
+            received_time: "2026-08-27T18:00:00Z",
+            wind_speed: "12",
+          }]));
+        }
+        return new Promise(() => {});
+      })
+    );
+    const { unmount } = renderProvider();
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    const socket = socketInstances[0];
+    openAndAcknowledge(socket);
+    sendWind(socket, 12);
+
+    for (let elapsed = 10000; elapsed <= 90000; elapsed += 10000) {
+      await act(() => vi.advanceTimersByTimeAsync(10000));
+      sendWind(socket, 12);
+    }
+    expect(screen.getByTestId("safety-ready")).toHaveTextContent("ready");
+
+    await act(() => vi.advanceTimersByTimeAsync(1000));
+    expect(screen.getByTestId("wind-state")).toHaveTextContent("live");
+    expect(screen.getByTestId("gust-history-state")).toHaveTextContent("stale");
+    expect(screen.getByTestId("safety-ready")).toHaveTextContent("incomplete");
     unmount();
   });
 
@@ -315,7 +501,8 @@ describe("WeatherProvider WebSocket lifecycle", () => {
     const secondSocket = socketInstances[1];
     openAndAcknowledge(secondSocket);
     sendWeather(secondSocket);
-    expect(screen.getByTestId("socket-status")).toHaveTextContent("LIVE");
+    expect(screen.getByTestId("socket-status")).toHaveTextContent("DOWN");
+    expect(screen.getByTestId("weather-status")).toHaveTextContent("live");
 
     const weatherHandler = secondSocket.onmessage;
     expect(() =>
@@ -325,7 +512,8 @@ describe("WeatherProvider WebSocket lifecycle", () => {
             id: "weather",
             payload: {
               data: {
-                weather: {
+                  weather: {
+                  receivedAt: new Date(Date.now()).toISOString(),
                   metar: "KAAA 010000Z CLR 70 50 A3000",
                   presentWeather: {},
                   skyCondition: [{ altitude: null, cloudCover: "CLR" }],
@@ -340,7 +528,7 @@ describe("WeatherProvider WebSocket lifecycle", () => {
     ).not.toThrow();
     expect(screen.getByTestId("socket-status")).toHaveTextContent("DOWN");
 
-    await act(() => vi.advanceTimersByTimeAsync(1000));
+    await act(() => vi.advanceTimersByTimeAsync(2000));
     const thirdSocket = socketInstances[2];
     openAndAcknowledge(thirdSocket);
     sendWind(thirdSocket, 14);
@@ -371,9 +559,10 @@ describe("WeatherProvider WebSocket lifecycle", () => {
     unmount();
   });
 
-  it("backs off repeated acknowledged disconnects and caps the delay", async () => {
+  it("backs off with bounded jitter at the cap and resets only after fresh wind", async () => {
     const { unmount } = renderProvider();
-    const expectedDelays = [1000, 2000, 4000, 8000, 16000, 30000, 30000];
+    Math.random.mockReturnValue(0);
+    const expectedDelays = [800, 1600, 3200, 6400, 12800, 24000, 24000];
 
     for (const delay of expectedDelays) {
       const socket = socketInstances.at(-1);
@@ -387,6 +576,16 @@ describe("WeatherProvider WebSocket lifecycle", () => {
       await act(() => vi.advanceTimersByTimeAsync(1));
       expect(socketInstances).toHaveLength(countBeforeRetry + 1);
     }
+
+    const recoveredSocket = socketInstances.at(-1);
+    openAndAcknowledge(recoveredSocket);
+    sendWind(recoveredSocket, 12);
+    act(() => recoveredSocket.onclose());
+    const countBeforeResetRetry = socketInstances.length;
+    await act(() => vi.advanceTimersByTimeAsync(799));
+    expect(socketInstances).toHaveLength(countBeforeResetRetry);
+    await act(() => vi.advanceTimersByTimeAsync(1));
+    expect(socketInstances).toHaveLength(countBeforeResetRetry + 1);
 
     unmount();
   });
@@ -405,6 +604,46 @@ describe("WeatherProvider WebSocket lifecycle", () => {
 
     await act(() => vi.advanceTimersByTimeAsync(1000));
     expect(socketInstances).toHaveLength(2);
+    unmount();
+  });
+
+  it("recovers immediately on focus, pageshow, and visible lifecycle events", () => {
+    const visibility = vi
+      .spyOn(document, "visibilityState", "get")
+      .mockReturnValue("visible");
+    const { unmount } = renderProvider();
+
+    act(() => socketInstances[0].onclose());
+    act(() => window.dispatchEvent(new Event("focus")));
+    expect(socketInstances).toHaveLength(2);
+
+    act(() => socketInstances[1].onclose());
+    act(() => window.dispatchEvent(new Event("pageshow")));
+    expect(socketInstances).toHaveLength(3);
+
+    visibility.mockReturnValue("hidden");
+    act(() => socketInstances[2].onclose());
+    act(() => document.dispatchEvent(new Event("visibilitychange")));
+    expect(socketInstances).toHaveLength(3);
+    visibility.mockReturnValue("visible");
+    act(() => document.dispatchEvent(new Event("visibilitychange")));
+    expect(socketInstances).toHaveLength(4);
+    unmount();
+  });
+
+  it("suspends reconnects offline and reconnects immediately online", async () => {
+    const { unmount } = renderProvider();
+    const socket = socketInstances[0];
+
+    act(() => window.dispatchEvent(new Event("offline")));
+    expect(socket.close).toHaveBeenCalledOnce();
+    expect(screen.getByTestId("wind-state")).toHaveTextContent("unavailable");
+    await act(() => vi.advanceTimersByTimeAsync(60000));
+    expect(socketInstances).toHaveLength(1);
+
+    act(() => window.dispatchEvent(new Event("online")));
+    expect(socketInstances).toHaveLength(2);
+    expect(screen.getByTestId("wind-state")).toHaveTextContent("connecting");
     unmount();
   });
 

@@ -45,9 +45,17 @@ function DetailedPage() {
     metarDesc,
     speedUnit,
     unitSetting,
-    isAwosLive,
+    canEvaluateWindSafety,
+    windStatus,
+    windStatusDetail,
+    windStatusText,
     timeFormat
   } = useContext(WeatherContext);
+
+  const windSafetyWarning = "WIND DATA INCOMPLETE — DO NOT USE FOR GO/NO-GO";
+  const windRowClassName = `${
+    darkTheme === "true" ? "table" : "table-light"
+  }${windStatus === "live" ? "" : " detailed-wind-aged"}`;
 
   return (
     <div className="detailed-contents">
@@ -60,8 +68,8 @@ function DetailedPage() {
         </span>
       ) : (
         <span className="student-wind-hold">
-          {!isAwosLive ? (
-            <span className="red">NO AWOS CONNECTION</span>
+          {!canEvaluateWindSafety ? (
+            <span className="red">{windSafetyWarning}</span>
           ) : maxGust > 50 || maxSpeed > 50 || speed > 50 ? (
             <span className="red">*** HOLY $h*T!!! ***</span>
           ) : maxGust > 40 || maxSpeed > 40 || speed > 40 ? (
@@ -127,10 +135,19 @@ function DetailedPage() {
             </tr>
           ) : null}
 
-          <tr className={darkTheme === "true" ? "table" : "table-light"}>
+          <tr className={windRowClassName}>
+            <td>Wind Data:</td>
+            <td className={windStatus === "live" ? "green" : "red"}>
+              {windStatusText}
+            </td>
+          </tr>
+
+          <tr className={windRowClassName}>
             <td>Current Speed:</td>
             <td>
-              {speed === 0 ? (
+              {!windStatusDetail?.hasSample ? (
+                "Unavailable"
+              ) : speed === 0 ? (
                 `0 ${speedUnit === "true" ? "kts" : "mph"}`
               ) : !speed ? null : speed === 1 ? (
                 `${speed} ${speedUnit === "true" ? "kt" : "mph"}`
@@ -151,10 +168,12 @@ function DetailedPage() {
               )}
             </td>
           </tr>
-          <tr className={darkTheme === "true" ? "table" : "table-light"}>
+          <tr className={windRowClassName}>
             <td>Current Gust:</td>
             <td>
-              {gustSpeed && gustSpeed > 25 ? (
+              {!windStatusDetail?.hasSample ? (
+                "Unavailable"
+              ) : gustSpeed && gustSpeed > 25 ? (
                 <span className="red">
                   {Math.round(gustSpeed * (speedUnit === "false" ? 1.151 : 1))}{" "}
                   {speedUnit === "true" ? "kts" : "mph"}
@@ -174,7 +193,7 @@ function DetailedPage() {
             </td>
           </tr>
 
-          <tr className={darkTheme === "true" ? "table" : "table-light"}>
+          <tr className={windRowClassName}>
             <td>
               Max Speed <small>(30 Min)</small>:
             </td>
@@ -205,7 +224,7 @@ function DetailedPage() {
               )}
             </td>
           </tr>
-          <tr className={darkTheme === "true" ? "table" : "table-light"}>
+          <tr className={windRowClassName}>
             <td>
               Max Gust <small>(30 Min)</small>:
             </td>
@@ -229,14 +248,24 @@ function DetailedPage() {
             </td>
           </tr>
 
-          <tr className={darkTheme === "true" ? "table" : "table-light"}>
+          <tr className={windRowClassName}>
             <td>Wind Direction:</td>
-            <td>{direction ? `${direction}º` : speed === 0 ? `Calm` : null}</td>
+            <td>
+              {!windStatusDetail?.hasSample
+                ? "Unavailable"
+                : direction
+                  ? `${direction}º`
+                  : speed === 0
+                    ? "Calm"
+                    : null}
+            </td>
           </tr>
-          <tr className={darkTheme === "true" ? "table" : "table-light"}>
+          <tr className={windRowClassName}>
             <td>Variable Direction:</td>
             <td>
-              {variableDirection1 && variableDirection2
+              {!windStatusDetail?.hasSample
+                ? "Unavailable"
+                : variableDirection1 && variableDirection2
                 ? `${variableDirection1}º - ${variableDirection2}º`
                 : "Steady"}
             </td>

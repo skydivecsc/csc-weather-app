@@ -4,7 +4,7 @@ import { WeatherContext } from "../../context/WeatherContextValue";
 import Footer from ".";
 
 describe("Footer attribution", () => {
-  it("links Ryan Erickson's credit to his LinkedIn profile", () => {
+  it("renders Ryan Erickson's credit as plain text", () => {
     render(
       <WeatherContext.Provider
         value={{ jumpruns: [], metar: "", newOffset: "", newSpot: "" }}
@@ -13,17 +13,9 @@ describe("Footer attribution", () => {
       </WeatherContext.Provider>
     );
 
+    expect(screen.getByText("Created by: Ryan Erickson")).toBeInTheDocument();
     expect(
-      screen.getByRole("link", { name: "Created by: Ryan Erickson" })
-    ).toHaveAttribute(
-      "href",
-      "https://www.linkedin.com/in/ryan-erickson-dev"
-    );
-    expect(
-      screen.getByRole("link", { name: "Created by: Ryan Erickson" })
-    ).toHaveAttribute("target", "_blank");
-    expect(
-      screen.getByRole("link", { name: "Created by: Ryan Erickson" })
-    ).toHaveAttribute("rel", "noreferrer");
+      screen.queryByRole("link", { name: "Created by: Ryan Erickson" })
+    ).not.toBeInTheDocument();
   });
 });

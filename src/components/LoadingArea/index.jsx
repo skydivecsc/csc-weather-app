@@ -25,16 +25,26 @@ function LoadingArea() {
     darkTheme,
     speed,
     gustSpeed,
+    windStatus,
+    windStatusDetail,
+    windStatusText,
   } = useContext(WeatherContext);
 
 
+  const hasWind = windStatusDetail?.hasSample;
   return (
     <div className="loadingarea-grid">
-      <div className="loading-area-content-wind">
+      <div
+        className={`loading-area-content-wind ${windStatus === "live" ? "" : "loading-wind-aged"}`}
+      >
         <div className="wind-speed-loading">
-          {speed > 25 ? <span className="red">{speed}</span> : speed}
+          {!hasWind
+            ? "--"
+            : speed > 25
+              ? <span className="red">{speed}</span>
+              : speed}
           <div className="small">
-            {speed === 1 ? (
+            {!hasWind ? null : speed === 1 ? (
               `kt`
             ) : speed > 25 ? (
               <span className="red">kts</span>
@@ -44,7 +54,9 @@ function LoadingArea() {
           </div>
         </div>
         <div className="wind-gusts">
-          {gustSpeed > 0 && gustSpeed <= 15 ? (
+          {!hasWind ? (
+            <span className="red">No Current Wind</span>
+          ) : gustSpeed > 0 && gustSpeed <= 15 ? (
             <span className="green gust">
               <div>&nbsp;Gusting:</div>
               <div>
@@ -84,14 +96,25 @@ function LoadingArea() {
               alt="Wind Direction"
               className="arrow"
               style={
-                speed === 0
+                !hasWind
+                  ? { opacity: 0.25, transform: "rotate(250deg)" }
+                  : speed === 0
                   ? { transform: `rotate(250deg)` }
                   : { transform: `rotate(${direction}deg)` }
               }
             ></img>
           </div>
           <div className="wind-direction">
-            {direction ? `From ${direction}º` : speed === 0 ? `Calm` : null}
+            {!hasWind
+              ? "Direction unavailable"
+              : direction
+                ? `From ${direction}º`
+                : speed === 0
+                  ? "Calm"
+                  : null}
+          </div>
+          <div className={`loading-wind-status loading-wind-${windStatus}`}>
+            {windStatusText}
           </div>
         </div>
       </div>

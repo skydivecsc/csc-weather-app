@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { extname, join, relative, resolve } from "node:path";
 import { loadEnv } from "vite";
+import { resolveBuildCommit } from "../vite.config.js";
 
 const TARGETS = {
   staging: {
@@ -90,6 +91,47 @@ const artifacts = buildFiles.map((path) => ({
   path: relative(projectDirectory, path),
 }));
 const combinedArtifacts = artifacts.map(({ content }) => content).join("\n");
+const versionArtifact = artifacts.find(
+  ({ path }) => path === `${target.outputDirectory}/version.json`,
+);
+
+if (!versionArtifact) {
+  throw new Error(`${targetName} build is missing version.json`);
+}
+
+let versionManifest;
+
+try {
+  versionManifest = JSON.parse(versionArtifact.content);
+} catch {
+  throw new Error(`${targetName} version.json is not valid JSON`);
+}
+
+const expectedBuildCommit = resolveBuildCommit(loadedSettings);
+
+if (
+  !/^[0-9a-f]{40}$/.test(versionManifest.buildId) ||
+  versionManifest.buildId !== expectedBuildCommit
+) {
+  throw new Error(
+    `${targetName} version.json buildId does not match the exact build commit`,
+  );
+}
+
+const javascriptArtifacts = artifacts.filter(
+  ({ path }) => extname(path) === ".js",
+);
+
+if (
+  javascriptArtifacts.length === 0 ||
+  !javascriptArtifacts.some(({ content }) =>
+    content.includes(expectedBuildCommit),
+  )
+) {
+  throw new Error(
+    `${targetName} JavaScript bundle does not contain the version.json buildId`,
+  );
+}
 
 for (const [name, expectedValue] of Object.entries(target.settings)) {
   if (!combinedArtifacts.includes(expectedValue)) {
@@ -106,6 +148,26 @@ const unresolvedPlaceholders = artifacts
 if (unresolvedPlaceholders.length > 0) {
   throw new Error(
     `Unresolved Vite placeholders in: ${unresolvedPlaceholders.join(", ")}`,
+  );
+}
+
+const forbiddenAttributionUrl =
+  "https://www.linkedin.com/in/ryan-erickson-dev";
+const attributionFiles = artifacts
+  .filter(({ content }) => content.includes(forbiddenAttributionUrl))
+  .map(({ path }) => path);
+
+if (attributionFiles.length > 0) {
+  throw new Error(
+    `Build contains the retired Ryan Erickson LinkedIn attribution URL in: ${attributionFiles.join(", ")}`,
+  );
+}
+
+const requiredCreatorCredit = "Created by: Ryan Erickson";
+
+if (!combinedArtifacts.includes(requiredCreatorCredit)) {
+  throw new Error(
+    `${targetName} build is missing the visible ${requiredCreatorCredit} credit`,
   );
 }
 

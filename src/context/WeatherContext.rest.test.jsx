@@ -20,7 +20,10 @@ class SilentWebSocket {
   }
 }
 
-const response = (body, status = 200) => ({
+const response = (body, status = 200, headers = {}) => ({
+  headers: {
+    get: (name) => headers[name.toLowerCase()] ?? null,
+  },
   json: vi.fn().mockResolvedValue(body),
   ok: status >= 200 && status < 300,
   status,
@@ -54,7 +57,17 @@ const defaultBody = (url) => {
 };
 
 function WeatherProbe() {
-  const { gustData, jumpruns, newOffset, newSpot } = useContext(WeatherContext);
+  const {
+    canEvaluateWindSafety,
+    gustData,
+    historyStatus,
+    jumpruns,
+    newOffset,
+    newSpot,
+    speed,
+    windSource,
+    windStatus,
+  } = useContext(WeatherContext);
   return (
     <>
       <div data-testid="gust-speed">{gustData[0]?.wind_speed ?? "empty"}</div>
@@ -63,6 +76,13 @@ function WeatherProbe() {
       </div>
       <div data-testid="new-spot">{newSpot || "empty"}</div>
       <div data-testid="new-offset">{newOffset || "empty"}</div>
+      <div data-testid="current-speed">{speed}</div>
+      <div data-testid="history-state">{historyStatus.state}</div>
+      <div data-testid="safety-ready">
+        {canEvaluateWindSafety ? "ready" : "incomplete"}
+      </div>
+      <div data-testid="wind-source">{windSource}</div>
+      <div data-testid="wind-state">{windStatus}</div>
     </>
   );
 }
@@ -122,7 +142,12 @@ describe("WeatherProvider REST polling", () => {
         }
         const windSpeed = gustCalls === 1 ? 10 : 20;
         return Promise.resolve(
-          response([{ gust_speed: windSpeed, wind_speed: windSpeed }])
+          response([{
+            direction: 180,
+            gust_speed: windSpeed,
+            received_time: new Date(Date.now()).toISOString(),
+            wind_speed: windSpeed,
+          }])
         );
       }
       if (url.endsWith("/api/jumpruns/")) {
@@ -210,6 +235,121 @@ describe("WeatherProvider REST polling", () => {
     expect(screen.getByTestId("jumprun-count")).toHaveTextContent("1");
     expect(screen.getByTestId("new-spot")).toHaveTextContent(".5");
     expect(screen.getByTestId("new-offset")).toHaveTextContent("1.2");
+    unmount();
+  });
+
+  it("uses a validated recent gust row as a bounded backup source", async () => {
+    vi.setSystemTime(new Date("2026-08-27T18:00:00Z"));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url) => {
+        if (url.endsWith("/api/weather/gusts")) {
+          return Promise.resolve(
+            response([
+              {
+                direction: "280",
+                gust_speed: "14",
+                received_time: "2026-08-27T17:59:30Z",
+                wind_speed: "11",
+              },
+            ])
+          );
+        }
+        return Promise.resolve(response(defaultBody(url)));
+      })
+    );
+    const { unmount } = render(
+      <WeatherProvider>
+        <WeatherProbe />
+      </WeatherProvider>
+    );
+
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(screen.getByTestId("current-speed")).toHaveTextContent("11");
+    expect(screen.getByTestId("wind-source")).toHaveTextContent("gust-history");
+    expect(screen.getByTestId("wind-state")).toHaveTextContent("backup");
+    expect(screen.getByTestId("history-state")).toHaveTextContent("current");
+    expect(screen.getByTestId("safety-ready")).toHaveTextContent("incomplete");
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/api/weather/gusts"),
+      expect.objectContaining({ cache: "no-store" })
+    );
+
+    await act(() => vi.advanceTimersByTimeAsync(61000));
+    expect(screen.getByTestId("wind-state")).toHaveTextContent("stale");
+    expect(screen.getByTestId("history-state")).toHaveTextContent("stale");
+    unmount();
+  });
+
+  it("uses the server-time header when evaluating gust age", async () => {
+    vi.setSystemTime(new Date("2026-08-27T18:05:00Z"));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url) => {
+        if (url.endsWith("/api/weather/gusts")) {
+          return Promise.resolve(
+            response(
+              [{
+                direction: "280",
+                gust_speed: "14",
+                received_time: "2026-08-27T17:59:30Z",
+                wind_speed: "11",
+              }],
+              200,
+              { "x-cscwx-server-time": "2026-08-27T18:00:00Z" }
+            )
+          );
+        }
+        return Promise.resolve(response(defaultBody(url)));
+      })
+    );
+    const { unmount } = render(
+      <WeatherProvider>
+        <WeatherProbe />
+      </WeatherProvider>
+    );
+
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(screen.getByTestId("wind-state")).toHaveTextContent("backup");
+    expect(screen.getByTestId("history-state")).toHaveTextContent("current");
+    unmount();
+  });
+
+  it("preserves last-known history across empty and invalid responses", async () => {
+    vi.setSystemTime(new Date("2026-08-27T18:00:00Z"));
+    let gustCalls = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url) => {
+        if (url.endsWith("/api/weather/gusts")) {
+          gustCalls += 1;
+          if (gustCalls === 1) {
+            return Promise.resolve(response([{
+              direction: "180",
+              gust_speed: "12",
+              received_time: "2026-08-27T18:00:00Z",
+              wind_speed: "10",
+            }]));
+          }
+          return Promise.resolve(response(gustCalls === 2 ? [] : [{}]));
+        }
+        return Promise.resolve(response(defaultBody(url)));
+      })
+    );
+    const { unmount } = render(
+      <WeatherProvider>
+        <WeatherProbe />
+      </WeatherProvider>
+    );
+
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(screen.getByTestId("gust-speed")).toHaveTextContent("10");
+    await act(() => vi.advanceTimersByTimeAsync(30000));
+    expect(screen.getByTestId("gust-speed")).toHaveTextContent("10");
+    expect(screen.getByTestId("history-state")).toHaveTextContent("error");
+    await act(() => vi.advanceTimersByTimeAsync(30000));
+    expect(screen.getByTestId("gust-speed")).toHaveTextContent("10");
+    expect(screen.getByTestId("history-state")).toHaveTextContent("error");
     unmount();
   });
 });

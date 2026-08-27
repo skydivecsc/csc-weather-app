@@ -30,3 +30,7 @@
 .detailed-card table {
   margin: 0px 30px;
 }
+
+.detailed-wind-aged td:not(:first-child) {
+  opacity: 0.65;
+}

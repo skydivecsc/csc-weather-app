@@ -4,7 +4,8 @@ import { PUBLIC_SITE_LABEL } from "../../config";
 import './loadingfooter.css'
 
 function FooterLoadingArea() {
-  const { jumpruns, maxGust, maxSpeed, speed } = useContext(WeatherContext);
+  const { canEvaluateWindSafety, jumpruns, maxGust, maxSpeed, speed } =
+    useContext(WeatherContext);
 
   return (
     <div className="footer-jumprun-loading">
@@ -20,7 +21,11 @@ function FooterLoadingArea() {
         </span>
       ) : (
         <span className="student-wind-hold-loading">
-          {maxGust > 25 || maxSpeed > 25 || speed > 25 ? (
+          {!canEvaluateWindSafety ? (
+            <span className="red">
+              *** WIND DATA INCOMPLETE — DO NOT USE FOR GO/NO-GO ***
+            </span>
+          ) : maxGust > 25 || maxSpeed > 25 || speed > 25 ? (
             <span className="red">*** DZ WIND LIMIT HIT ***</span>
           ) : maxGust > 15 || maxSpeed > 15 || speed > 15 ? (
             <span className="yellow">*** STUDENT WIND HOLD ***</span>

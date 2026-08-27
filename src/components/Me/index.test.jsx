@@ -4,6 +4,7 @@ import { WeatherContext } from "../../context/WeatherContextValue";
 import Me from ".";
 
 const defaultWeather = {
+  canEvaluateWindSafety: true,
   darkTheme: "true",
   gustSpeed: null,
   isAwosLive: true,
@@ -93,12 +94,29 @@ describe("Me safety guidance", () => {
     expect(localStorage.getItem("userLicense")).toBe("D");
   });
 
-  it("shows a connection warning before safety guidance when AWOS is down", () => {
+  it("fails closed before safety guidance when wind data is stale", () => {
     localStorage.setItem("userLicense", "D");
 
-    renderMe({ isAwosLive: false });
+    renderMe({
+      canEvaluateWindSafety: false,
+    });
 
-    expect(screen.getByText("NO AWOS CONNECTION")).toBeInTheDocument();
+    expect(
+      screen.getByText("WIND DATA INCOMPLETE — DO NOT USE FOR GO/NO-GO")
+    ).toBeInTheDocument();
+    expect(screen.queryByText("CONDITIONS ARE OK!")).not.toBeInTheDocument();
+  });
+
+  it("does not issue favorable guidance from REST fallback data", () => {
+    localStorage.setItem("userLicense", "D");
+
+    renderMe({
+      canEvaluateWindSafety: false,
+    });
+
+    expect(
+      screen.getByText("WIND DATA INCOMPLETE — DO NOT USE FOR GO/NO-GO")
+    ).toBeInTheDocument();
     expect(screen.queryByText("CONDITIONS ARE OK!")).not.toBeInTheDocument();
   });
 });

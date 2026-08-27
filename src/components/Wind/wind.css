@@ -62,6 +62,34 @@
   font-weight: 600;
 }
 
+.wind-freshness {
+  font-size: calc(8px + 1vmin);
+  font-weight: 700;
+  margin-top: 0.5rem;
+  text-align: center;
+}
+
+.wind-freshness-backup {
+  color: rgb(255, 216, 0);
+}
+
+.wind-freshness-live {
+  color: rgb(8, 228, 209);
+}
+
+.wind-freshness-connecting,
+.wind-freshness-offline,
+.wind-freshness-stale,
+.wind-freshness-unavailable {
+  color: rgb(243, 16, 16);
+}
+
+.wind-data-aged .wind-speed,
+.wind-data-aged .wind-gusts,
+.wind-data-aged .wind-direction {
+  opacity: 0.65;
+}
+
 .wind-anamometer {
   height: 90%;
   display: flex;

@@ -17,6 +17,7 @@ import Aircraft from "./components/Aircraft";
 import WebcamHelp from "./components/WebcamHelp";
 import Safety from "./components/Safety";
 import Manifest from "./components/Manifest";
+import UpdateDetector from "./components/UpdateDetector";
 import "./App.css";
 
 function App() {
@@ -26,6 +27,8 @@ function App() {
 
   return (
     <div className={darkTheme === "true" ? "App" : "Applight"}>
+      <UpdateDetector isKiosk={isLoadingArea} />
+
       <div
         className={
           isLoadingArea ? "header-container-loadingarea" : "header-container"

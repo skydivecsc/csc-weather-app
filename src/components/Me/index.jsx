@@ -4,7 +4,14 @@ import { isWithinSelectedLimits } from "./safety";
 import './mycsc.css'
 
 function Me() {
-  const { speed, gustSpeed, maxSpeed, maxGust, isAwosLive, darkTheme } =
+  const {
+    canEvaluateWindSafety,
+    speed,
+    gustSpeed,
+    maxSpeed,
+    maxGust,
+    darkTheme,
+  } =
     useContext(WeatherContext);
   const [userMaxSpeed, setUserMaxSpeed] = useState(
     localStorage.getItem("userMaxSpeed") || ""
@@ -27,6 +34,7 @@ function Me() {
     userMaxGust,
     userMaxSpeed,
   });
+  const unavailableMessage = "WIND DATA INCOMPLETE — DO NOT USE FOR GO/NO-GO";
 
   const handleLicense = (e) => {
     setUserLicense(e.target.value);
@@ -76,8 +84,8 @@ function Me() {
             </span>
           </div>
         ) :
-        !isAwosLive ? (
-          <div><span className="red"><small><b>NO AWOS CONNECTION</b></small></span></div>
+        !canEvaluateWindSafety ? (
+          <div><span className="red"><small><b>{unavailableMessage}</b></small></span></div>
         ) :
         isSafe ? (
           <b>
