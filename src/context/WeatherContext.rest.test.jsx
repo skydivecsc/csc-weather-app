@@ -59,12 +59,15 @@ const defaultBody = (url) => {
 function WeatherProbe() {
   const {
     canEvaluateWindSafety,
+    directions,
     gustData,
     historyStatus,
     jumpruns,
     newOffset,
     newSpot,
+    received,
     speed,
+    sunset,
     windSource,
     windStatus,
   } = useContext(WeatherContext);
@@ -76,6 +79,11 @@ function WeatherProbe() {
       </div>
       <div data-testid="new-spot">{newSpot || "empty"}</div>
       <div data-testid="new-offset">{newOffset || "empty"}</div>
+      <div data-testid="aloft-direction">
+        {directions?.[1000] ?? directions?.error ?? "empty"}
+      </div>
+      <div data-testid="aloft-received">{received || "empty"}</div>
+      <div data-testid="sunset">{sunset || "empty"}</div>
       <div data-testid="current-speed">{speed}</div>
       <div data-testid="history-state">{historyStatus.state}</div>
       <div data-testid="safety-ready">
@@ -350,6 +358,139 @@ describe("WeatherProvider REST polling", () => {
     await act(() => vi.advanceTimersByTimeAsync(30000));
     expect(screen.getByTestId("gust-speed")).toHaveTextContent("10");
     expect(screen.getByTestId("history-state")).toHaveTextContent("error");
+    unmount();
+  });
+
+  it("recovers every REST poller after initial aloft and astronomy failures", async () => {
+    const visibility = vi
+      .spyOn(document, "visibilityState", "get")
+      .mockReturnValue("visible");
+    const calls = {
+      aloft: 0,
+      astronomy: 0,
+      gusts: 0,
+      jumpruns: 0,
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url) => {
+        const endpoint = Object.keys(calls).find((name) =>
+          url.includes(`/api/${name === "jumpruns" ? "jumpruns/" : `weather/${name}`}`)
+        );
+        if (endpoint) {
+          calls[endpoint] += 1;
+        }
+        if (
+          (url.endsWith("/api/weather/aloft") ||
+            url.endsWith("/api/weather/astronomy")) &&
+          calls[endpoint] === 1
+        ) {
+          return Promise.reject(new Error("initial request failed"));
+        }
+        return Promise.resolve(response(defaultBody(url)));
+      })
+    );
+    const { unmount } = render(
+      <WeatherProvider>
+        <WeatherProbe />
+      </WeatherProvider>
+    );
+
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(calls).toEqual({ aloft: 1, astronomy: 1, gusts: 1, jumpruns: 1 });
+    expect(screen.getByTestId("aloft-direction")).toHaveTextContent("empty");
+    expect(screen.getByTestId("sunset")).toHaveTextContent("empty");
+
+    act(() => window.dispatchEvent(new Event("focus")));
+    await act(() => vi.advanceTimersByTimeAsync(0));
+
+    expect(calls).toEqual({ aloft: 2, astronomy: 2, gusts: 2, jumpruns: 2 });
+    expect(screen.getByTestId("aloft-direction")).toHaveTextContent("180");
+    expect(screen.getByTestId("aloft-received")).toHaveTextContent("now");
+    expect(screen.getByTestId("sunset")).not.toHaveTextContent("empty");
+
+    for (const dispatchRecoveryEvent of [
+      () => window.dispatchEvent(new Event("online")),
+      () => window.dispatchEvent(new Event("pageshow")),
+      () => document.dispatchEvent(new Event("visibilitychange")),
+    ]) {
+      act(dispatchRecoveryEvent);
+      await act(() => vi.advanceTimersByTimeAsync(0));
+    }
+
+    expect(calls).toEqual({ aloft: 5, astronomy: 5, gusts: 5, jumpruns: 5 });
+    visibility.mockRestore();
+    unmount();
+  });
+
+  it("preserves successful aloft, astronomy, and jumprun data after later errors", async () => {
+    let aloftCalls = 0;
+    let astronomyCalls = 0;
+    let jumprunCalls = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url) => {
+        if (url.endsWith("/api/weather/aloft")) {
+          aloftCalls += 1;
+          return Promise.resolve(
+            response(
+              aloftCalls === 1
+                ? defaultBody(url)
+                : { error: "temporary aloft failure" }
+            )
+          );
+        }
+        if (url.endsWith("/api/jumpruns/")) {
+          jumprunCalls += 1;
+          return Promise.resolve(
+            response(
+              jumprunCalls === 1
+                ? { jumpruns: [{ offset: 12, spot: 5 }] }
+                : { error: "temporary jumprun failure" }
+            )
+          );
+        }
+        if (url.endsWith("/api/weather/astronomy")) {
+          astronomyCalls += 1;
+          return Promise.resolve(
+            response(
+              astronomyCalls === 1
+                ? defaultBody(url)
+                : {
+                    results: {
+                      civil_twilight_end: null,
+                      sunrise: null,
+                      sunset: null,
+                    },
+                  }
+            )
+          );
+        }
+        return Promise.resolve(response(defaultBody(url)));
+      })
+    );
+    const { unmount } = render(
+      <WeatherProvider>
+        <WeatherProbe />
+      </WeatherProvider>
+    );
+
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(screen.getByTestId("aloft-direction")).toHaveTextContent("180");
+    expect(screen.getByTestId("aloft-received")).toHaveTextContent("now");
+    expect(screen.getByTestId("jumprun-count")).toHaveTextContent("1");
+    const sunset = screen.getByTestId("sunset").textContent;
+    expect(sunset).not.toBe("empty");
+
+    act(() => window.dispatchEvent(new Event("pageshow")));
+    await act(() => vi.advanceTimersByTimeAsync(0));
+
+    expect(screen.getByTestId("aloft-direction")).toHaveTextContent("180");
+    expect(screen.getByTestId("aloft-received")).toHaveTextContent("now");
+    expect(screen.getByTestId("jumprun-count")).toHaveTextContent("1");
+    expect(screen.getByTestId("new-spot")).toHaveTextContent(".5");
+    expect(screen.getByTestId("new-offset")).toHaveTextContent("1.2");
+    expect(screen.getByTestId("sunset")).toHaveTextContent(sunset);
     unmount();
   });
 });

@@ -5,12 +5,18 @@ const WIND_SOCKET_URL = "wss://api.skydivecsc.com/graphql";
 
 const routePublicApi = async (
   page,
-  { historyAgeMs = 0, onGustRequest = () => {} } = {}
+  {
+    historyAgeMs = 0,
+    onGustRequest = () => {},
+    onRequest = () => {},
+  } = {}
 ) => {
   await page.route(`${API_ORIGIN}/**`, (route) => {
     const pathname = new URL(route.request().url()).pathname;
     const serverNow = Date.now();
     let body = {};
+
+    onRequest(pathname);
 
     if (pathname.endsWith("/api/weather/gusts")) {
       onGustRequest();
@@ -24,6 +30,21 @@ const routePublicApi = async (
           wind_speed: "11",
         },
       ];
+    } else if (pathname.endsWith("/api/weather/aloft")) {
+      body = {
+        direction: { 1000: 270 },
+        speed: { 1000: 10 },
+        temp: { 1000: 20 },
+        validtime: "now",
+      };
+    } else if (pathname.endsWith("/api/weather/astronomy")) {
+      body = {
+        results: {
+          civil_twilight_end: new Date(serverNow + 3600000).toISOString(),
+          sunrise: new Date(serverNow - 3600000).toISOString(),
+          sunset: new Date(serverNow + 1800000).toISOString(),
+        },
+      };
     } else if (pathname.endsWith("/api/jumpruns/")) {
       body = { jumpruns: [] };
     } else if (pathname.endsWith("/api/loads/")) {
@@ -131,15 +152,19 @@ test("offline to online reconnects and restores live wind", async ({
   await expect(status).toContainText("LIVE");
 });
 
-test("returning to a visible tab immediately refreshes both data paths", async ({
+test("returning to a visible tab refreshes every REST poller and the socket", async ({
   page,
 }) => {
   let gustRequests = 0;
   let socketConnections = 0;
+  const restRequests = new Map();
 
   await routePublicApi(page, {
     onGustRequest: () => {
       gustRequests += 1;
+    },
+    onRequest: (pathname) => {
+      restRequests.set(pathname, (restRequests.get(pathname) || 0) + 1);
     },
   });
   await routeWindSocket(page, {
@@ -151,6 +176,14 @@ test("returning to a visible tab immediately refreshes both data paths", async (
   await page.goto("/");
   await expect.poll(() => gustRequests).toBeGreaterThan(0);
   await expect.poll(() => socketConnections).toBeGreaterThan(0);
+  for (const pathname of [
+    "/api/weather/gusts",
+    "/api/weather/aloft",
+    "/api/weather/astronomy",
+    "/api/jumpruns/",
+  ]) {
+    await expect.poll(() => restRequests.get(pathname) || 0).toBeGreaterThan(0);
+  }
   await page.waitForTimeout(250);
 
   await page.evaluate(() => {
@@ -162,6 +195,7 @@ test("returning to a visible tab immediately refreshes both data paths", async (
   });
   const hiddenGustRequests = gustRequests;
   const hiddenSocketConnections = socketConnections;
+  const hiddenRestRequests = new Map(restRequests);
 
   await page.evaluate(() => {
     Object.defineProperty(document, "visibilityState", {
@@ -172,6 +206,16 @@ test("returning to a visible tab immediately refreshes both data paths", async (
   });
 
   await expect.poll(() => gustRequests).toBeGreaterThan(hiddenGustRequests);
+  for (const pathname of [
+    "/api/weather/gusts",
+    "/api/weather/aloft",
+    "/api/weather/astronomy",
+    "/api/jumpruns/",
+  ]) {
+    await expect
+      .poll(() => restRequests.get(pathname) || 0)
+      .toBeGreaterThan(hiddenRestRequests.get(pathname) || 0);
+  }
   await expect
     .poll(() => socketConnections)
     .toBeGreaterThan(hiddenSocketConnections);

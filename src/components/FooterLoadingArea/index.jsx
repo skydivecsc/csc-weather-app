@@ -1,7 +1,8 @@
 import { useContext } from "react";
 import { WeatherContext } from "../../context/WeatherContextValue";
 import { PUBLIC_SITE_LABEL } from "../../config";
-import './loadingfooter.css'
+import BuildVersion from "../BuildVersion";
+import "./loadingfooter.css";
 
 function FooterLoadingArea() {
   const { canEvaluateWindSafety, jumpruns, maxGust, maxSpeed, speed } =
@@ -9,7 +10,10 @@ function FooterLoadingArea() {
 
   return (
     <div className="footer-jumprun-loading">
-      <div className="loading-footer-content">{PUBLIC_SITE_LABEL}</div>
+      <div className="loading-footer-content loading-footer-site">
+        <span>{PUBLIC_SITE_LABEL}</span>
+        <BuildVersion />
+      </div>
 
       {jumpruns[0]?.beerLight ? (
         <span className="yellow weather-hold" id="loading-footer-light">

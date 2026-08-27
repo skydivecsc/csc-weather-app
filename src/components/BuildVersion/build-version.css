@@ -1,0 +1,9 @@
+.build-version {
+  display: inline-block;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
+  font-size: 0.75em;
+  letter-spacing: 0.04em;
+  opacity: 0.8;
+  white-space: nowrap;
+}

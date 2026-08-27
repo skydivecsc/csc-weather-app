@@ -86,6 +86,36 @@ test("focus detects a release that appeared after startup", async ({ page }) => 
   );
 });
 
+test("the exact current build is visible on ordinary and kiosk routes", async ({
+  page,
+}) => {
+  await isolateUpdateChecks(page, () => null);
+  await page.goto("/");
+
+  const manifest = await page.evaluate(() =>
+    fetch("/version.json", { cache: "no-store" }).then((response) =>
+      response.json()
+    )
+  );
+  expect(manifest.buildId).toMatch(/^[0-9a-f]{40}$/);
+
+  for (const pathname of ["/", "/loadingarea"]) {
+    if (page.url() !== new URL(pathname, page.url()).href) {
+      await page.goto(pathname);
+    }
+
+    const buildLabel = page.locator(
+      `[data-build-id="${manifest.buildId}"]`
+    );
+    await expect(buildLabel).toBeVisible();
+    await expect(buildLabel).toHaveText(`Build ${manifest.buildId.slice(0, 8)}`);
+    await expect(buildLabel).toHaveAttribute(
+      "title",
+      `Full build commit: ${manifest.buildId}`
+    );
+  }
+});
+
 test("the loading-area kiosk automatically reloads only once", async ({
   page,
 }) => {

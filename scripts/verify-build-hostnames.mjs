@@ -133,6 +133,22 @@ if (
   );
 }
 
+const requiredBuildLabelMarkers = [
+  "build-version",
+  "data-build-id",
+  "Full build commit:",
+  "full build commit",
+];
+const missingBuildLabelMarkers = requiredBuildLabelMarkers.filter(
+  (marker) => !combinedArtifacts.includes(marker),
+);
+
+if (missingBuildLabelMarkers.length > 0) {
+  throw new Error(
+    `${targetName} build is missing visible build label metadata: ${missingBuildLabelMarkers.join(", ")}`,
+  );
+}
+
 for (const [name, expectedValue] of Object.entries(target.settings)) {
   if (!combinedArtifacts.includes(expectedValue)) {
     throw new Error(

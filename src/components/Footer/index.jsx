@@ -1,6 +1,7 @@
 import { useContext } from "react";
 import { WeatherContext } from "../../context/WeatherContextValue";
 import { PUBLIC_SITE_LABEL, PUBLIC_SITE_URL } from "../../config";
+import BuildVersion from "../BuildVersion";
 import "./footer.css";
 
 function Footer() {
@@ -8,7 +9,10 @@ function Footer() {
 
   return (
     <div className="metar-container">
-      <p>Created by: Ryan Erickson</p>
+      <div className="footer-attribution">
+        <p>Created by: Ryan Erickson</p>
+        <BuildVersion />
+      </div>
 
       {jumpruns[0] ? (
         jumpruns[0].beerLight ? (

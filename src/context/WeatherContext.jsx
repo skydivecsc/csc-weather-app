@@ -75,6 +75,12 @@ const formatJumprunAdjustment = (value) => {
 const isNullableFiniteNumber = (value) =>
   value === null || Number.isFinite(value);
 
+const isNonEmptyRecord = (value) =>
+  value &&
+  typeof value === "object" &&
+  !Array.isArray(value) &&
+  Object.keys(value).length > 0;
+
 const toFiniteNumber = (value) => {
   if (typeof value === "number") {
     return Number.isFinite(value) ? value : null;
@@ -389,6 +395,9 @@ const WindSpeedProvider = ({ children }) => {
   }, []);
 
   useEffect(() => {
+    let hasAloftSuccess = false;
+    let hasJumprunSuccess = false;
+
     const stopWind = startPolling({
       intervalMs: THIRTY_SECONDS,
       request: fetchWindHistory,
@@ -442,16 +451,21 @@ const WindSpeedProvider = ({ children }) => {
       intervalMs: THREE_MINUTES,
       request: (options) => fetchJson("/api/weather/aloft", options),
       onResult: (data) => {
-        const winds = data?.direction
+        const winds =
+          isNonEmptyRecord(data?.direction) &&
+          isNonEmptyRecord(data?.speed) &&
+          isNonEmptyRecord(data?.temp) &&
+          typeof data?.validtime === "string" &&
+          data.validtime.trim()
           ? data
           : { error: data?.error || "no wind aloft info found!" };
 
         if (winds.error) {
-          setDirections(winds);
-          setTemps({});
-          setSpeeds({});
-          setReceived(null);
+          if (!hasAloftSuccess) {
+            setDirections(winds);
+          }
         } else {
+          hasAloftSuccess = true;
           setDirections(winds.direction);
           setTemps(winds.temp);
           setSpeeds(winds.speed);
@@ -465,7 +479,7 @@ const WindSpeedProvider = ({ children }) => {
       request: (options) => fetchJson("/api/jumpruns/", options),
       onResult: (data) => {
         if (!Array.isArray(data?.jumpruns)) {
-          if (data && typeof data === "object") {
+          if (data && typeof data === "object" && !hasJumprunSuccess) {
             setJumpruns(data);
             setNewSpot("");
             setNewOffset("");
@@ -473,6 +487,7 @@ const WindSpeedProvider = ({ children }) => {
           return;
         }
 
+        hasJumprunSuccess = true;
         setJumpruns(data.jumpruns);
         const latestJumprun = data.jumpruns[0];
         setNewSpot(formatJumprunAdjustment(latestJumprun?.spot));
@@ -484,7 +499,30 @@ const WindSpeedProvider = ({ children }) => {
       intervalMs: TEN_MINUTES,
       request: (options) => fetchJson("/api/weather/astronomy", options),
       onResult: (data) => {
-        if (!data?.results) {
+        const astronomy = data?.results;
+        const timestamps = [
+          astronomy?.sunset,
+          astronomy?.sunrise,
+          astronomy?.civil_twilight_end,
+        ];
+        if (
+          !astronomy ||
+          timestamps.some(
+            (timestamp) =>
+              typeof timestamp !== "string" || timestamp.trim() === ""
+          )
+        ) {
+          return;
+        }
+
+        const [sunsetDate, sunriseDate, twilightDate] = timestamps.map(
+          (timestamp) => new Date(timestamp)
+        );
+        if (
+          [sunsetDate, sunriseDate, twilightDate].some((date) =>
+            Number.isNaN(date.getTime())
+          )
+        ) {
           return;
         }
 
@@ -501,27 +539,22 @@ const WindSpeedProvider = ({ children }) => {
           timeZone: "America/Chicago",
         };
 
-        const sunsetFormat = new Date(data.results.sunset).toLocaleTimeString(
+        const sunsetFormat = sunsetDate.toLocaleTimeString(
           "en-US",
           options
         );
-        const sunriseFormat = new Date(data.results.sunrise).toLocaleTimeString(
+        const sunriseFormat = sunriseDate.toLocaleTimeString(
           "en-US",
           options
         );
-        const twilightFormat = new Date(
-          data.results.civil_twilight_end
-        ).toLocaleTimeString("en-US", options);
+        const twilightFormat = twilightDate.toLocaleTimeString("en-US", options);
 
-        const sunsetFormat24 = new Date(
-          data.results.sunset
-        ).toLocaleTimeString("en-US", options24);
-        const sunriseFormat24 = new Date(
-          data.results.sunrise
-        ).toLocaleTimeString("en-US", options24);
-        const twilightFormat24 = new Date(
-          data.results.civil_twilight_end
-        ).toLocaleTimeString("en-US", options24);
+        const sunsetFormat24 = sunsetDate.toLocaleTimeString("en-US", options24);
+        const sunriseFormat24 = sunriseDate.toLocaleTimeString("en-US", options24);
+        const twilightFormat24 = twilightDate.toLocaleTimeString(
+          "en-US",
+          options24
+        );
 
         setSunset(sunsetFormat);
         setSunrise(sunriseFormat);
@@ -539,7 +572,14 @@ const WindSpeedProvider = ({ children }) => {
       ) {
         return;
       }
-      void stopWind.runNow();
+      for (const stopPolling of [
+        stopWind,
+        stopAloft,
+        stopJumprun,
+        stopAstronomy,
+      ]) {
+        void stopPolling.runNow();
+      }
     };
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") {
