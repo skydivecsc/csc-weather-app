@@ -5,12 +5,20 @@ import { calculateTemperatureColor } from "../utils";
 import LoadingDots from "../LoadingDots";
 
 function WindsAloftLoading() {
-  const { directions, speeds, temps, darkTheme } = useContext(WeatherContext);
+  const { aloftStatus, directions, speeds, temps, darkTheme } =
+    useContext(WeatherContext);
 
   const altitudesToRender = [1000, 2000, 3000, 4000, 6000, 10000, 14000];
 
-  if (directions?.error) {
-    return <div className="loading">No Winds Aloft Found</div>;
+  if (
+    (aloftStatus?.state === "error" && !aloftStatus.hasSample) ||
+    directions?.error
+  ) {
+    return (
+      <div className="loading aloft-retry-status" role="status">
+        WINDS ALOFT UNAVAILABLE — RETRYING
+      </div>
+    );
   }
 
   if (
@@ -24,6 +32,14 @@ function WindsAloftLoading() {
   return (
     <div className="wind-aloft-table">
       <div className="aloft-contents" id="aloft-loading">
+        {aloftStatus?.state === "error" && aloftStatus.hasSample ? (
+          <div className="aloft-retry-status" role="status">
+            SHOWING LAST-KNOWN WINDS ALOFT — UPDATE FAILED, RETRYING
+            {aloftStatus.ageLabel ? (
+              <span>Last successful update {aloftStatus.ageLabel}</span>
+            ) : null}
+          </div>
+        ) : null}
         <table>
           <thead>
             <tr>

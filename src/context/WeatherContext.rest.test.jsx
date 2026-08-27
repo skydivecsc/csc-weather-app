@@ -29,17 +29,27 @@ const response = (body, status = 200, headers = {}) => ({
   status,
 });
 
+const aloftMap = (valueAtAltitude) =>
+  Object.fromEntries(
+    Array.from({ length: 18 }, (_, index) => {
+      const altitude = (index + 1) * 1000;
+      return [`${altitude}`, valueAtAltitude(altitude)];
+    })
+  );
+
+const validAloftBody = ({ direction = 180, speed = 10, temp = 20, validtime = "18" } = {}) => ({
+  direction: aloftMap(() => direction),
+  speed: aloftMap(() => speed),
+  temp: aloftMap(() => temp),
+  validtime,
+});
+
 const defaultBody = (url) => {
   if (url.endsWith("/api/weather/gusts")) {
     return [{ gust_speed: 6, wind_speed: 5, received_time: "2026-08-16" }];
   }
   if (url.endsWith("/api/weather/aloft")) {
-    return {
-      direction: { 1000: 180 },
-      speed: { 1000: 10 },
-      temp: { 1000: 20 },
-      validtime: "now",
-    };
+    return validAloftBody();
   }
   if (url.endsWith("/api/jumpruns/")) {
     return { jumpruns: [{ offset: 12, spot: 5 }] };
@@ -59,6 +69,8 @@ const defaultBody = (url) => {
 function WeatherProbe() {
   const {
     canEvaluateWindSafety,
+    aloftStatus,
+    astronomyStatus,
     directions,
     gustData,
     historyStatus,
@@ -84,6 +96,14 @@ function WeatherProbe() {
       </div>
       <div data-testid="aloft-received">{received || "empty"}</div>
       <div data-testid="sunset">{sunset || "empty"}</div>
+      <div data-testid="aloft-status">{aloftStatus.state}</div>
+      <div data-testid="aloft-has-sample">
+        {aloftStatus.hasSample ? "yes" : "no"}
+      </div>
+      <div data-testid="astronomy-status">{astronomyStatus.state}</div>
+      <div data-testid="astronomy-has-sample">
+        {astronomyStatus.hasSample ? "yes" : "no"}
+      </div>
       <div data-testid="current-speed">{speed}</div>
       <div data-testid="history-state">{historyStatus.state}</div>
       <div data-testid="safety-ready">
@@ -400,14 +420,20 @@ describe("WeatherProvider REST polling", () => {
     expect(calls).toEqual({ aloft: 1, astronomy: 1, gusts: 1, jumpruns: 1 });
     expect(screen.getByTestId("aloft-direction")).toHaveTextContent("empty");
     expect(screen.getByTestId("sunset")).toHaveTextContent("empty");
+    expect(screen.getByTestId("aloft-status")).toHaveTextContent("error");
+    expect(screen.getByTestId("aloft-has-sample")).toHaveTextContent("no");
+    expect(screen.getByTestId("astronomy-status")).toHaveTextContent("error");
+    expect(screen.getByTestId("astronomy-has-sample")).toHaveTextContent("no");
 
     act(() => window.dispatchEvent(new Event("focus")));
     await act(() => vi.advanceTimersByTimeAsync(0));
 
     expect(calls).toEqual({ aloft: 2, astronomy: 2, gusts: 2, jumpruns: 2 });
     expect(screen.getByTestId("aloft-direction")).toHaveTextContent("180");
-    expect(screen.getByTestId("aloft-received")).toHaveTextContent("now");
+    expect(screen.getByTestId("aloft-received")).toHaveTextContent("18");
     expect(screen.getByTestId("sunset")).not.toHaveTextContent("empty");
+    expect(screen.getByTestId("aloft-status")).toHaveTextContent("current");
+    expect(screen.getByTestId("astronomy-status")).toHaveTextContent("current");
 
     for (const dispatchRecoveryEvent of [
       () => window.dispatchEvent(new Event("online")),
@@ -432,13 +458,9 @@ describe("WeatherProvider REST polling", () => {
       vi.fn((url) => {
         if (url.endsWith("/api/weather/aloft")) {
           aloftCalls += 1;
-          return Promise.resolve(
-            response(
-              aloftCalls === 1
-                ? defaultBody(url)
-                : { error: "temporary aloft failure" }
-            )
-          );
+          return aloftCalls === 1
+            ? Promise.resolve(response(defaultBody(url)))
+            : Promise.reject(new Error("temporary aloft failure"));
         }
         if (url.endsWith("/api/jumpruns/")) {
           jumprunCalls += 1;
@@ -477,7 +499,7 @@ describe("WeatherProvider REST polling", () => {
 
     await act(() => vi.advanceTimersByTimeAsync(0));
     expect(screen.getByTestId("aloft-direction")).toHaveTextContent("180");
-    expect(screen.getByTestId("aloft-received")).toHaveTextContent("now");
+    expect(screen.getByTestId("aloft-received")).toHaveTextContent("18");
     expect(screen.getByTestId("jumprun-count")).toHaveTextContent("1");
     const sunset = screen.getByTestId("sunset").textContent;
     expect(sunset).not.toBe("empty");
@@ -486,11 +508,65 @@ describe("WeatherProvider REST polling", () => {
     await act(() => vi.advanceTimersByTimeAsync(0));
 
     expect(screen.getByTestId("aloft-direction")).toHaveTextContent("180");
-    expect(screen.getByTestId("aloft-received")).toHaveTextContent("now");
+    expect(screen.getByTestId("aloft-received")).toHaveTextContent("18");
     expect(screen.getByTestId("jumprun-count")).toHaveTextContent("1");
     expect(screen.getByTestId("new-spot")).toHaveTextContent(".5");
     expect(screen.getByTestId("new-offset")).toHaveTextContent("1.2");
     expect(screen.getByTestId("sunset")).toHaveTextContent(sunset);
+    expect(screen.getByTestId("aloft-status")).toHaveTextContent("error");
+    expect(screen.getByTestId("aloft-has-sample")).toHaveTextContent("yes");
+    expect(screen.getByTestId("astronomy-status")).toHaveTextContent("error");
+    expect(screen.getByTestId("astronomy-has-sample")).toHaveTextContent("yes");
+    unmount();
+  });
+
+  it("rejects semantically malformed aloft payloads without replacing good data", async () => {
+    const missingAltitude = validAloftBody({ direction: 200, validtime: "19" });
+    delete missingAltitude.direction["18000"];
+    const invalidPayloads = [
+      missingAltitude,
+      validAloftBody({ direction: 361, validtime: "19" }),
+      validAloftBody({ direction: 200, speed: -1, validtime: "19" }),
+      validAloftBody({ direction: 200, temp: "not-a-number", validtime: "19" }),
+      validAloftBody({ direction: 200, validtime: "24" }),
+      validAloftBody({ direction: 200, validtime: "18.5" }),
+    ];
+    let aloftCalls = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url) => {
+        if (url.endsWith("/api/weather/aloft")) {
+          const body =
+            aloftCalls === 0
+              ? validAloftBody()
+              : invalidPayloads[aloftCalls - 1];
+          aloftCalls += 1;
+          return Promise.resolve(response(body));
+        }
+        return Promise.resolve(response(defaultBody(url)));
+      })
+    );
+    const { unmount } = render(
+      <WeatherProvider>
+        <WeatherProbe />
+      </WeatherProvider>
+    );
+
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(screen.getByTestId("aloft-status")).toHaveTextContent("current");
+    expect(screen.getByTestId("aloft-direction")).toHaveTextContent("180");
+    expect(screen.getByTestId("aloft-received")).toHaveTextContent("18");
+
+    for (let index = 0; index < invalidPayloads.length; index += 1) {
+      act(() => window.dispatchEvent(new Event("focus")));
+      await act(() => vi.advanceTimersByTimeAsync(0));
+      expect(screen.getByTestId("aloft-status")).toHaveTextContent("error");
+      expect(screen.getByTestId("aloft-has-sample")).toHaveTextContent("yes");
+      expect(screen.getByTestId("aloft-direction")).toHaveTextContent("180");
+      expect(screen.getByTestId("aloft-received")).toHaveTextContent("18");
+    }
+
+    expect(aloftCalls).toBe(invalidPayloads.length + 1);
     unmount();
   });
 });

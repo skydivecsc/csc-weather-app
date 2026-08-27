@@ -2,6 +2,13 @@ import { expect, test } from "@playwright/test";
 
 const API_ORIGIN = "https://login.cscwx2.com";
 const WIND_SOCKET_URL = "wss://api.skydivecsc.com/graphql";
+const aloftMap = (value) =>
+  Object.fromEntries(
+    Array.from({ length: 18 }, (_, index) => [
+      `${(index + 1) * 1000}`,
+      value,
+    ])
+  );
 
 const routePublicApi = async (
   page,
@@ -32,10 +39,10 @@ const routePublicApi = async (
       ];
     } else if (pathname.endsWith("/api/weather/aloft")) {
       body = {
-        direction: { 1000: 270 },
-        speed: { 1000: 10 },
-        temp: { 1000: 20 },
-        validtime: "now",
+        direction: aloftMap(270),
+        speed: aloftMap(10),
+        temp: aloftMap(20),
+        validtime: "18",
       };
     } else if (pathname.endsWith("/api/weather/astronomy")) {
       body = {

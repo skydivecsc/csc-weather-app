@@ -45,7 +45,12 @@ export function startPolling({
     }
 
     const controller = new AbortController();
-    const currentRun = { controller, promise: null, timeoutId: null };
+    const currentRun = {
+      controller,
+      promise: null,
+      timedOut: false,
+      timeoutId: null,
+    };
     activeRun = currentRun;
 
     const aborted = new Promise((_, reject) => {
@@ -53,7 +58,10 @@ export function startPolling({
       controller.signal.addEventListener("abort", currentRun.abortHandler, {
         once: true,
       });
-      currentRun.timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+      currentRun.timeoutId = setTimeout(() => {
+        currentRun.timedOut = true;
+        controller.abort();
+      }, timeoutMs);
     });
 
     currentRun.promise = (async () => {
@@ -74,9 +82,13 @@ export function startPolling({
         if (
           !disposed &&
           activeRun === currentRun &&
-          !isAbortError(error)
+          (currentRun.timedOut || !isAbortError(error))
         ) {
-          onError(error);
+          onError(
+            currentRun.timedOut
+              ? new Error("Polling request timed out")
+              : error
+          );
         }
       } finally {
         clearTimeout(currentRun.timeoutId);

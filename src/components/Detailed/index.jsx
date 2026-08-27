@@ -25,6 +25,7 @@ function DetailedPage() {
     sunset24,
     sunrise24,
     twilight24,
+    astronomyStatus,
     skyCondition1,
     skyCondition2,
     skyCondition3,
@@ -56,6 +57,29 @@ function DetailedPage() {
   const windRowClassName = `${
     darkTheme === "true" ? "table" : "table-light"
   }${windStatus === "live" ? "" : " detailed-wind-aged"}`;
+  const astronomyHasError = astronomyStatus?.state === "error";
+  const renderAstronomyValue = (value, value24) => {
+    if (astronomyHasError && !astronomyStatus.hasSample) {
+      return <span className="astronomy-value-last-known">Unavailable</span>;
+    }
+    if (value === null) {
+      return <LoadingDots />;
+    }
+
+    return (
+      <>
+        <span
+          className={
+            astronomyHasError
+              ? "astronomy-value-last-known"
+              : undefined
+          }
+        >
+          {timeFormat === "true" ? value : value24}
+        </span>
+      </>
+    );
+  };
 
   return (
     <div className="detailed-contents">
@@ -86,17 +110,40 @@ function DetailedPage() {
 
       <table>
         <tbody>
+          {astronomyHasError ? (
+            <tr className={darkTheme === "true" ? "table" : "table-light"}>
+              <td colSpan="2">
+                <span
+                  className={
+                    astronomyStatus.hasSample
+                      ? "astronomy-retry-status"
+                      : "astronomy-unavailable"
+                  }
+                  role="status"
+                >
+                  {astronomyStatus.hasSample
+                    ? "SHOWING LAST-KNOWN ASTRONOMY DATA — UPDATE FAILED, RETRYING"
+                    : "ASTRONOMY DATA UNAVAILABLE — RETRYING"}
+                  {astronomyStatus.hasSample && astronomyStatus.ageLabel ? (
+                    <span>
+                      Last successful update {astronomyStatus.ageLabel}
+                    </span>
+                  ) : null}
+                </span>
+              </td>
+            </tr>
+          ) : null}
           <tr className={darkTheme === "true" ? "table" : "table-light"}>
             <td>Sunset:</td>
-            <td>{sunset === null ? <LoadingDots /> : timeFormat === 'true' ? sunset : sunset24}</td>
+            <td>{renderAstronomyValue(sunset, sunset24)}</td>
           </tr>
           <tr className={darkTheme === "true" ? "table" : "table-light"}>
             <td>Twilight:</td>
-            <td>{twilight === null ? <LoadingDots /> : timeFormat === 'true' ? twilight : twilight24}</td>
+            <td>{renderAstronomyValue(twilight, twilight24)}</td>
           </tr>
           <tr className={darkTheme === "true" ? "table" : "table-light"}>
             <td>Sunrise:</td>
-            <td>{sunrise === null ? <LoadingDots /> : timeFormat === 'true' ? sunrise : sunrise24}</td>
+            <td>{renderAstronomyValue(sunrise, sunrise24)}</td>
           </tr>
 
           {jumpruns[0]?.heading ? (

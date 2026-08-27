@@ -142,5 +142,9 @@ test("the loading-area kiosk automatically reloads only once", async ({
 
   await page.waitForTimeout(1000);
   expect(navigationCount).toBe(2);
-  await expect(page.getByRole("status")).toBeVisible();
+  await expect(
+    page
+      .getByRole("status")
+      .filter({ hasText: "A newer CSC Weather version is available" })
+  ).toBeVisible();
 });

@@ -28,10 +28,45 @@ function LoadingArea() {
     windStatus,
     windStatusDetail,
     windStatusText,
+    astronomyStatus,
   } = useContext(WeatherContext);
 
 
   const hasWind = windStatusDetail?.hasSample;
+  const renderSunset = () => {
+    if (astronomyStatus?.state === "error" && !astronomyStatus.hasSample) {
+      return (
+        <span className="astronomy-unavailable" role="status">
+          ASTRONOMY DATA UNAVAILABLE — RETRYING
+        </span>
+      );
+    }
+    if (sunset === null) {
+      return <LoadingDots />;
+    }
+
+    return (
+      <>
+        <span
+          className={
+            astronomyStatus?.state === "error"
+              ? "astronomy-value-last-known"
+              : undefined
+          }
+        >
+          {sunset}
+        </span>
+        {astronomyStatus?.state === "error" && astronomyStatus.hasSample ? (
+          <span className="astronomy-retry-status" role="status">
+            SHOWING LAST-KNOWN ASTRONOMY DATA — UPDATE FAILED, RETRYING
+            {astronomyStatus.ageLabel ? (
+              <span>Last successful update {astronomyStatus.ageLabel}</span>
+            ) : null}
+          </span>
+        ) : null}
+      </>
+    );
+  };
   return (
     <div className="loadingarea-grid">
       <div
@@ -173,7 +208,7 @@ function LoadingArea() {
               ) : null}
               <tr className={darkTheme === "true" ? "table" : "table-light"}>
                 <td>Sunset:</td>
-                <td>{sunset === null ? <LoadingDots /> : sunset}</td>
+                <td>{renderSunset()}</td>
               </tr>
 
               <tr className={darkTheme === "true" ? "table" : "table-light"}>

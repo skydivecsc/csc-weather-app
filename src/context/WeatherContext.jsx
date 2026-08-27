@@ -14,6 +14,10 @@ const WEATHER_LIVE_MS = 90000;
 const REST_FALLBACK_MS = 90000;
 const MAX_FUTURE_SKEW_MS = 30000;
 const STATUS_TICK_MS = 1000;
+const ALOFT_ALTITUDE_KEYS = Array.from(
+  { length: 18 },
+  (_, index) => `${(index + 1) * 1000}`
+);
 
 const parseServerTime = (value) => {
   if (typeof value !== "string" || value.trim() === "") {
@@ -93,6 +97,52 @@ const toFiniteNumber = (value) => {
   return Number.isFinite(parsed) ? parsed : null;
 };
 
+const normalizeAloftPayload = (data) => {
+  if (
+    !isNonEmptyRecord(data?.direction) ||
+    !isNonEmptyRecord(data?.speed) ||
+    !isNonEmptyRecord(data?.temp)
+  ) {
+    return null;
+  }
+
+  const validtime = toFiniteNumber(data.validtime);
+  if (!Number.isInteger(validtime) || validtime < 0 || validtime > 23) {
+    return null;
+  }
+
+  const direction = {};
+  const speed = {};
+  const temp = {};
+  for (const altitude of ALOFT_ALTITUDE_KEYS) {
+    const normalizedDirection = toFiniteNumber(data.direction[altitude]);
+    const normalizedSpeed = toFiniteNumber(data.speed[altitude]);
+    const normalizedTemp = toFiniteNumber(data.temp[altitude]);
+    if (
+      normalizedDirection === null ||
+      normalizedDirection < 0 ||
+      normalizedDirection > 360 ||
+      normalizedSpeed === null ||
+      normalizedSpeed < 0 ||
+      normalizedTemp === null
+    ) {
+      return null;
+    }
+
+    direction[altitude] = normalizedDirection;
+    speed[altitude] = normalizedSpeed;
+    temp[altitude] = normalizedTemp;
+  }
+
+  return {
+    ...data,
+    direction,
+    speed,
+    temp,
+    validtime: `${validtime}`,
+  };
+};
+
 const parseReceivedAt = (value, now) => {
   const parsed = typeof value === "string" ? Date.parse(value) : NaN;
   if (!Number.isFinite(parsed) || parsed > now + MAX_FUTURE_SKEW_MS) {
@@ -170,6 +220,20 @@ const ageLabel = (ageMs) => {
   return `${Math.floor(safeAgeMs / 60000)}m ago`;
 };
 
+const createPollingStatus = (lastSuccessAt, error, now) => {
+  const ageMs =
+    lastSuccessAt === null ? null : Math.max(0, now - lastSuccessAt);
+  return {
+    ageLabel: ageMs === null ? null : ageLabel(ageMs),
+    ageMs,
+    error,
+    hasSample: lastSuccessAt !== null,
+    isCurrent: error === null && lastSuccessAt !== null,
+    lastSuccessAt,
+    state: error ? "error" : lastSuccessAt === null ? "loading" : "current",
+  };
+};
+
 const formatWindStatusText = (status, updatedAge) => {
   if (status === "live") {
     return `LIVE — updated ${updatedAge}`;
@@ -199,6 +263,7 @@ const WindSpeedProvider = ({ children }) => {
     () => typeof navigator === "undefined" || navigator.onLine !== false
   );
   const [statusClock, setStatusClock] = useState(() => Date.now());
+  const [clientStatusClock, setClientStatusClock] = useState(() => Date.now());
   const [weatherMeasuredAt, setWeatherMeasuredAt] = useState(null);
   const [historyLastSuccessAt, setHistoryLastSuccessAt] = useState(null);
   const [historyError, setHistoryError] = useState(null);
@@ -234,6 +299,8 @@ const WindSpeedProvider = ({ children }) => {
   const [temps, setTemps] = useState({});
   const [speeds, setSpeeds] = useState({});
   const [received, setReceived] = useState(null);
+  const [aloftLastSuccessAt, setAloftLastSuccessAt] = useState(null);
+  const [aloftError, setAloftError] = useState(null);
   const [dewPoint, setDewPoint] = useState(null);
   const [pressure, setPressure] = useState(null);
   const [densityAlt, setDensityAlt] = useState(null);
@@ -244,6 +311,8 @@ const WindSpeedProvider = ({ children }) => {
   const [sunset24, setSunset24] = useState(null);
   const [sunrise24, setSunrise24] = useState(null);
   const [twilight24, setTwilight24] = useState(null);
+  const [astronomyLastSuccessAt, setAstronomyLastSuccessAt] = useState(null);
+  const [astronomyError, setAstronomyError] = useState(null);
   const [jumpruns, setJumpruns] = useState([]);
   const [newSpot, setNewSpot] = useState("");
   const [newOffset, setNewOffset] = useState("");
@@ -366,6 +435,16 @@ const WindSpeedProvider = ({ children }) => {
             : "loading",
   };
   const gustHistoryStatus = historyStatus;
+  const aloftStatus = createPollingStatus(
+    aloftLastSuccessAt,
+    aloftError,
+    clientStatusClock
+  );
+  const astronomyStatus = createPollingStatus(
+    astronomyLastSuccessAt,
+    astronomyError,
+    clientStatusClock
+  );
 
   const speed = currentWind?.speed ?? 0;
   const gustSpeed = currentWind?.gustSpeed ?? null;
@@ -387,15 +466,15 @@ const WindSpeedProvider = ({ children }) => {
   const maxSpeed = historicalMaxSpeed < speed ? speed : historicalMaxSpeed;
 
   useEffect(() => {
-    const timer = setInterval(
-      () => setStatusClock(Date.now() + serverClockOffset.current),
-      STATUS_TICK_MS
-    );
+    const timer = setInterval(() => {
+      const now = Date.now();
+      setClientStatusClock(now);
+      setStatusClock(now + serverClockOffset.current);
+    }, STATUS_TICK_MS);
     return () => clearInterval(timer);
   }, []);
 
   useEffect(() => {
-    let hasAloftSuccess = false;
     let hasJumprunSuccess = false;
 
     const stopWind = startPolling({
@@ -451,27 +530,26 @@ const WindSpeedProvider = ({ children }) => {
       intervalMs: THREE_MINUTES,
       request: (options) => fetchJson("/api/weather/aloft", options),
       onResult: (data) => {
-        const winds =
-          isNonEmptyRecord(data?.direction) &&
-          isNonEmptyRecord(data?.speed) &&
-          isNonEmptyRecord(data?.temp) &&
-          typeof data?.validtime === "string" &&
-          data.validtime.trim()
-          ? data
-          : { error: data?.error || "no wind aloft info found!" };
-
-        if (winds.error) {
-          if (!hasAloftSuccess) {
-            setDirections(winds);
-          }
-        } else {
-          hasAloftSuccess = true;
-          setDirections(winds.direction);
-          setTemps(winds.temp);
-          setSpeeds(winds.speed);
-          setReceived(winds.validtime);
+        const winds = normalizeAloftPayload(data);
+        if (!winds) {
+          setAloftError(
+            typeof data?.error === "string" && data.error.trim()
+              ? data.error
+              : "Winds aloft data was invalid"
+          );
+          return;
         }
+
+        setDirections(winds.direction);
+        setTemps(winds.temp);
+        setSpeeds(winds.speed);
+        setReceived(winds.validtime);
+        const now = Date.now();
+        setAloftLastSuccessAt(now);
+        setClientStatusClock(now);
+        setAloftError(null);
       },
+      onError: () => setAloftError("Winds aloft request failed"),
     });
 
     const stopJumprun = startPolling({
@@ -512,6 +590,7 @@ const WindSpeedProvider = ({ children }) => {
               typeof timestamp !== "string" || timestamp.trim() === ""
           )
         ) {
+          setAstronomyError("Astronomy data was invalid");
           return;
         }
 
@@ -523,6 +602,7 @@ const WindSpeedProvider = ({ children }) => {
             Number.isNaN(date.getTime())
           )
         ) {
+          setAstronomyError("Astronomy data was invalid");
           return;
         }
 
@@ -562,7 +642,12 @@ const WindSpeedProvider = ({ children }) => {
         setSunset24(sunsetFormat24);
         setSunrise24(sunriseFormat24);
         setTwilight24(twilightFormat24);
+        const now = Date.now();
+        setAstronomyLastSuccessAt(now);
+        setClientStatusClock(now);
+        setAstronomyError(null);
       },
+      onError: () => setAstronomyError("Astronomy request failed"),
     });
 
     const recoverPolling = () => {
@@ -1141,6 +1226,8 @@ const WindSpeedProvider = ({ children }) => {
         gustData,
         gustHistoryStatus,
         historyStatus,
+        aloftStatus,
+        astronomyStatus,
         darkTheme,
         setDarkTheme,
         unitSetting,

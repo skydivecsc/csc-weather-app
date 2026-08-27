@@ -5,6 +5,7 @@ import { WeatherContext } from "../../context/WeatherContextValue";
 import DetailedPage from ".";
 
 const weather = {
+  astronomyStatus: { hasSample: true, state: "current" },
   canEvaluateWindSafety: false,
   cloudCeiling1: "",
   cloudCeiling2: "",
@@ -46,15 +47,18 @@ const weather = {
   windStatusText: "BACKUP WIND — 1-minute sample, updated 30s ago",
 };
 
+const renderDetailed = (overrides = {}) =>
+  render(
+    <WeatherContext.Provider value={{ ...weather, ...overrides }}>
+      <MemoryRouter>
+        <DetailedPage />
+      </MemoryRouter>
+    </WeatherContext.Provider>
+  );
+
 describe("Detailed wind safety presentation", () => {
   it("mutes aged wind rows and suppresses favorable conclusions", () => {
-    render(
-      <WeatherContext.Provider value={weather}>
-        <MemoryRouter>
-          <DetailedPage />
-        </MemoryRouter>
-      </WeatherContext.Provider>
-    );
+    renderDetailed();
 
     expect(
       screen.getByText("WIND DATA INCOMPLETE — DO NOT USE FOR GO/NO-GO")
@@ -63,5 +67,45 @@ describe("Detailed wind safety presentation", () => {
     expect(screen.getByText("Current Speed:").closest("tr")).toHaveClass(
       "detailed-wind-aged"
     );
+  });
+
+  it("shows astronomy unavailable while an initial failure retries", () => {
+    renderDetailed({
+      astronomyStatus: { hasSample: false, state: "error" },
+      sunrise: null,
+      sunrise24: null,
+      sunset: null,
+      sunset24: null,
+      twilight: null,
+      twilight24: null,
+    });
+
+    expect(
+      screen.getByText("ASTRONOMY DATA UNAVAILABLE — RETRYING")
+    ).toBeInTheDocument();
+    expect(screen.getAllByText("Unavailable")).toHaveLength(3);
+  });
+
+  it("keeps and labels last-known astronomy values after refresh failure", () => {
+    renderDetailed({
+      astronomyStatus: {
+        ageLabel: "4m ago",
+        hasSample: true,
+        state: "error",
+      },
+    });
+
+    expect(screen.getByText("7:00 PM")).toHaveClass(
+      "astronomy-value-last-known"
+    );
+    expect(screen.getByText("6:00 AM")).toHaveClass(
+      "astronomy-value-last-known"
+    );
+    expect(
+      screen.getByText(
+        "SHOWING LAST-KNOWN ASTRONOMY DATA — UPDATE FAILED, RETRYING"
+      )
+    ).toBeInTheDocument();
+    expect(screen.getByText("Last successful update 4m ago")).toBeInTheDocument();
   });
 });
