@@ -10,7 +10,7 @@ function Footer() {
     <div className="metar-container">
       <p>
         <a
-          href="mailto:skydivecscgithub.gmail.com"
+          href="https://www.linkedin.com/in/ryan-erickson-dev"
           target="_blank"
           rel="noreferrer"
         >
