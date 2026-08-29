@@ -13,6 +13,14 @@ export default defineConfig({
       name: "chromium",
       use: { ...devices["Desktop Chrome"] },
     },
+    {
+      name: "mobile-chromium",
+      use: { ...devices["Pixel 7"] },
+    },
+    {
+      name: "mobile-webkit",
+      use: { ...devices["iPhone 13"] },
+    },
   ],
   reporter: "list",
   testDir: "./tests/browser",

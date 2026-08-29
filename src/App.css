@@ -178,9 +178,10 @@
   flex-direction: row;
   justify-content: center;
   align-items: flex-start;
-  height: 76vh;
-  width: 80%;
-  overflow: hidden;
+  box-sizing: border-box;
+  min-height: 76vh;
+  padding: 2vh 1rem 1rem;
+  width: min(100%, 80rem);
 }
 
 .footer-container {
@@ -373,9 +374,10 @@ a:hover {
     margin-top: 5vh;
   }
   .hangar-cam-container {
-    height: 72vh;
+    min-height: 72vh;
     margin-top: 4vh;
-    width: 90%;
+    padding: 0 0.75rem 1rem;
+    width: 100%;
   }
   .windy-radar,
   .aircraft-tracker {
