@@ -3,17 +3,24 @@
   flex-direction: column;
   justify-content: flex-start;
   align-items: center;
-  width: 80%;
-  max-height: auto;
+  gap: 0.75rem;
+  width: 100%;
 }
 
 .hangar-cam-buttons {
   display: flex;
   flex-direction: row;
+  flex-wrap: wrap;
   justify-content: center;
   align-items: center;
   font-size: calc(10px + 1.6vmin);
-  gap: 1vw;
+  gap: clamp(0.35rem, 1vw, 0.75rem);
+}
+
+.hangar-cam-buttons button {
+  margin: 0.25rem 0;
+  min-width: 4.5rem;
+  width: auto;
 }
 
 #cam {
@@ -24,23 +31,71 @@
 
 .yard-cam {
   display: flex;
-  flex-direction: row;
+  flex-direction: column;
   justify-content: center;
-  align-items: flex-start;
-  height: 76vh;
-  width: 90%;
+  align-items: center;
+  gap: 0.65rem;
+  width: min(100%, 60rem);
+}
+
+.yard-camera-frame {
+  aspect-ratio: 16 / 9;
+  background: #000;
+  border-radius: 10px;
   overflow: hidden;
+  width: 100%;
 }
 
 .yard-cam iframe {
-  display: flex;
-  flex-direction: row;
-  justify-content: flex-start;
-  align-items: center;
+  border: 0;
+  display: block;
+  height: 100%;
   width: 100%;
-  height: 90%;
-  overflow: hidden;
-  border: none;
+}
+
+.yard-camera-help {
+  font-size: clamp(0.85rem, 1.5vmin, 1rem);
+  margin: 0;
+  text-align: center;
+}
+
+.yard-camera-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  justify-content: center;
+}
+
+.yard-camera-actions button,
+.yard-camera-actions a {
+  align-items: center;
+  background: transparent;
+  border: 2px solid currentColor;
+  border-radius: 5px;
+  box-sizing: border-box;
+  color: inherit;
+  display: inline-flex;
+  font: inherit;
+  font-size: clamp(0.8rem, 1.4vmin, 0.95rem);
+  font-weight: 800;
+  height: auto;
+  justify-content: center;
+  margin: 0;
+  min-height: 2.5rem;
+  padding: 0.4rem 0.75rem;
+  text-decoration: none;
+  width: auto;
+}
+
+.yard-camera-actions button:hover,
+.yard-camera-actions a:hover {
+  background: rgba(8, 228, 209, 0.18);
+}
+
+.yard-camera-actions button:focus-visible,
+.yard-camera-actions a:focus-visible {
+  outline: 3px solid currentColor;
+  outline-offset: 2px;
 }
 
 .hangar-button {
@@ -76,5 +131,23 @@
   .hangar-button-active,
   .hangar-button-active-light {
     border: 1px solid black;
+  }
+}
+
+@media screen and (max-width: 500px) {
+  .hangar-cam {
+    gap: 0.5rem;
+  }
+
+  .hangar-cam-buttons {
+    font-size: 0.9rem;
+  }
+
+  .yard-cam {
+    width: 100%;
+  }
+
+  .yard-camera-actions {
+    width: 100%;
   }
 }
