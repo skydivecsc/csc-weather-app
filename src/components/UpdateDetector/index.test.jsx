@@ -2,14 +2,19 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import UpdateDetector from ".";
 import {
+  CURRENT_APP_VERSION,
   CURRENT_BUILD_ID,
   KIOSK_RELOAD_STORAGE_KEY,
   VERSION_CHECK_INTERVAL_MS,
   VERSION_MANIFEST_PATH,
 } from "./constants";
 
-const manifestResponse = (buildId, ok = true) => ({
-  json: () => Promise.resolve({ buildId }),
+const manifestResponse = (
+  buildId,
+  { ok = true, version = CURRENT_APP_VERSION } = {}
+) => ({
+  json: () =>
+    Promise.resolve(version === null ? { buildId } : { version, buildId }),
   ok,
 });
 
@@ -42,7 +47,7 @@ describe("UpdateDetector", () => {
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 
-  it("offers an accessible refresh action when a newer build is available", async () => {
+  it("offers a refresh when the build changes without a version change", async () => {
     const reloadPage = vi.fn();
     vi.stubGlobal(
       "fetch",
@@ -62,6 +67,39 @@ describe("UpdateDetector", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Refresh now" }));
     expect(reloadPage).toHaveBeenCalledOnce();
+  });
+
+  it("does not offer a refresh when only the human version differs", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        manifestResponse(CURRENT_BUILD_ID, { version: "9.9.9" })
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<UpdateDetector />);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
+  it("supports a legacy build-only manifest during rollout", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          manifestResponse("4444444444444444444444444444444444444444", {
+            version: null,
+          })
+        )
+    );
+
+    render(<UpdateDetector />);
+
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "A newer CSC Weather version is available."
+    );
   });
 
   it("reloads the kiosk once for each available build", async () => {

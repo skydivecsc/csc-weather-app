@@ -2,6 +2,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { extname, join, relative, resolve } from "node:path";
 import { loadEnv } from "vite";
 import { resolveBuildCommit } from "../vite.config.js";
+import { resolveAppVersion } from "./app-version.mjs";
 
 const TARGETS = {
   staging: {
@@ -52,6 +53,9 @@ if (!target) {
 }
 
 const projectDirectory = process.cwd();
+const packageMetadata = JSON.parse(
+  readFileSync(resolve(projectDirectory, "package.json"), "utf8")
+);
 const buildDirectory = resolve(projectDirectory, target.outputDirectory);
 const loadedSettings = loadEnv(targetName, projectDirectory, "VITE_");
 
@@ -108,6 +112,13 @@ try {
 }
 
 const expectedBuildCommit = resolveBuildCommit(loadedSettings);
+const expectedAppVersion = resolveAppVersion(packageMetadata);
+
+if (versionManifest.version !== expectedAppVersion) {
+  throw new Error(
+    `${targetName} version.json version does not match package.json`,
+  );
+}
 
 if (
   !/^[0-9a-f]{40}$/.test(versionManifest.buildId) ||
@@ -133,11 +144,22 @@ if (
   );
 }
 
+if (
+  !javascriptArtifacts.some(({ content }) =>
+    content.includes(expectedAppVersion),
+  )
+) {
+  throw new Error(
+    `${targetName} JavaScript bundle does not contain the package.json version`,
+  );
+}
+
 const requiredBuildLabelMarkers = [
   "build-version",
+  "data-app-version",
   "data-build-id",
-  "Full build commit:",
-  "full build commit",
+  "Version ",
+  "exact build commit:",
 ];
 const missingBuildLabelMarkers = requiredBuildLabelMarkers.filter(
   (marker) => !combinedArtifacts.includes(marker),

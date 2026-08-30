@@ -53,6 +53,22 @@ placeholders, reject `cscwx2.com` hostnames in production, and reject
 `cscwx.com` hostnames in staging. CI runs lint/tests plus both build-and-scan
 paths for changes targeting either `cscwx2-staging` or `main`.
 
+## Versioning
+
+The application version in `package.json` is the single source for the
+human-readable version shown in both footers and emitted in `version.json`.
+Use strict semantic versions with no prefix or prerelease suffix:
+
+- Features increment the minor version: `npm version minor --no-git-tag-version`
+- Fixes increment the patch version: `npm version patch --no-git-tag-version`
+- Major redesigns or incompatible changes increment the major version:
+  `npm version major --no-git-tag-version`
+
+Commit both `package.json` and `package-lock.json` with the feature or fix. The
+exact Git commit remains a separate `buildId` in `version.json`; update
+detection intentionally compares that build ID so a corrected commit cannot
+leave clients stale when the public version is unchanged.
+
 ## Features
 
 ### Home Page

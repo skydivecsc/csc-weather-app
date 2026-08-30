@@ -1,20 +1,22 @@
-import { CURRENT_BUILD_ID } from "../UpdateDetector/constants";
+import {
+  CURRENT_APP_VERSION,
+  CURRENT_BUILD_ID,
+} from "../UpdateDetector/constants";
 import "./build-version.css";
 
-const SHORT_BUILD_ID_LENGTH = 8;
-
 function BuildVersion() {
-  const shortBuildId = CURRENT_BUILD_ID.slice(0, SHORT_BUILD_ID_LENGTH);
-  const accessibleLabel = `Build ${shortBuildId}; full build commit ${CURRENT_BUILD_ID}`;
+  const accessibleLabel = `Version ${CURRENT_APP_VERSION}`;
+  const buildDetails = `Version ${CURRENT_APP_VERSION}; exact build commit: ${CURRENT_BUILD_ID}`;
 
   return (
     <span
       aria-label={accessibleLabel}
       className="build-version"
+      data-app-version={CURRENT_APP_VERSION}
       data-build-id={CURRENT_BUILD_ID}
-      title={`Full build commit: ${CURRENT_BUILD_ID}`}
+      title={buildDetails}
     >
-      Build {shortBuildId}
+      Version {CURRENT_APP_VERSION}
     </span>
   );
 }

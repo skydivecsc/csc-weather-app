@@ -1,7 +1,10 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { WeatherContext } from "../../context/WeatherContextValue";
-import { CURRENT_BUILD_ID } from "../UpdateDetector/constants";
+import {
+  CURRENT_APP_VERSION,
+  CURRENT_BUILD_ID,
+} from "../UpdateDetector/constants";
 import Footer from ".";
 
 describe("Footer attribution", () => {
@@ -19,16 +22,18 @@ describe("Footer attribution", () => {
       screen.queryByRole("link", { name: "Created by: Ryan Erickson" })
     ).not.toBeInTheDocument();
 
-    const shortBuildId = CURRENT_BUILD_ID.slice(0, 8);
-    const buildVersion = screen.getByText(`Build ${shortBuildId}`);
+    const buildVersion = screen.getByText(`Version ${CURRENT_APP_VERSION}`);
 
-    expect(buildVersion).toHaveAccessibleName(
-      `Build ${shortBuildId}; full build commit ${CURRENT_BUILD_ID}`
-    );
+    expect(buildVersion).toHaveAccessibleName(`Version ${CURRENT_APP_VERSION}`);
     expect(buildVersion).toHaveAttribute(
       "title",
-      `Full build commit: ${CURRENT_BUILD_ID}`
+      `Version ${CURRENT_APP_VERSION}; exact build commit: ${CURRENT_BUILD_ID}`
+    );
+    expect(buildVersion).toHaveAttribute(
+      "data-app-version",
+      CURRENT_APP_VERSION
     );
     expect(buildVersion).toHaveAttribute("data-build-id", CURRENT_BUILD_ID);
+    expect(screen.queryByText(/^Build /)).not.toBeInTheDocument();
   });
 });

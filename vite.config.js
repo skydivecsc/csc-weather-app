@@ -1,10 +1,15 @@
 import { execFileSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 import { env as processEnvironment } from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
+import { resolveAppVersion } from './scripts/app-version.mjs'
 
 const PROJECT_DIRECTORY = fileURLToPath(new URL('.', import.meta.url))
+const PACKAGE_METADATA = JSON.parse(
+  readFileSync(new URL('./package.json', import.meta.url), 'utf8'),
+)
 
 const REQUIRED_PUBLIC_SETTINGS = [
   'VITE_LOGIN_BASE_URL',
@@ -60,8 +65,8 @@ export const resolveBuildCommit = (
   return buildCommit
 }
 
-const versionManifestPlugin = (buildId) => {
-  const source = `${JSON.stringify({ buildId })}\n`
+const versionManifestPlugin = ({ appVersion, buildId }) => {
+  const source = `${JSON.stringify({ version: appVersion, buildId })}\n`
 
   const serveManifest = (request, response, next) => {
     if (request.url?.split('?', 1)[0] !== '/version.json') {
@@ -118,13 +123,15 @@ export default defineConfig(({ mode }) => {
     }
   }
 
+  const appVersion = resolveAppVersion(PACKAGE_METADATA)
   const buildCommit = resolveBuildCommit(env)
 
   return {
     define: {
+      'import.meta.env.VITE_APP_VERSION': JSON.stringify(appVersion),
       'import.meta.env.VITE_BUILD_COMMIT': JSON.stringify(buildCommit),
     },
-    plugins: [react(), versionManifestPlugin(buildCommit)],
+    plugins: [react(), versionManifestPlugin({ appVersion, buildId: buildCommit })],
     server: {
       port: 3000
     }

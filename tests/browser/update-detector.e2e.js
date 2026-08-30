@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 const REMOTE_BUILD_ID = "3333333333333333333333333333333333333333";
+const REMOTE_APP_VERSION = "1.1.0";
 const KIOSK_RELOAD_STORAGE_KEY = "cscwx:kiosk-reloaded-build";
 
 const isolateUpdateChecks = async (
@@ -22,7 +23,7 @@ const isolateUpdateChecks = async (
     }
 
     return route.fulfill({
-      body: JSON.stringify({ buildId }),
+      body: JSON.stringify({ version: REMOTE_APP_VERSION, buildId }),
       contentType: "application/json",
       headers: { "Cache-Control": "no-store" },
       status: 200,
@@ -97,6 +98,9 @@ test("the exact current build is visible on ordinary and kiosk routes", async ({
       response.json()
     )
   );
+  expect(manifest.version).toMatch(
+    /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/
+  );
   expect(manifest.buildId).toMatch(/^[0-9a-f]{40}$/);
 
   for (const pathname of ["/", "/loadingarea"]) {
@@ -104,15 +108,20 @@ test("the exact current build is visible on ordinary and kiosk routes", async ({
       await page.goto(pathname);
     }
 
-    const buildLabel = page.locator(
+    const versionLabel = page.locator(
       `[data-build-id="${manifest.buildId}"]`
     );
-    await expect(buildLabel).toBeVisible();
-    await expect(buildLabel).toHaveText(`Build ${manifest.buildId.slice(0, 8)}`);
-    await expect(buildLabel).toHaveAttribute(
-      "title",
-      `Full build commit: ${manifest.buildId}`
+    await expect(versionLabel).toBeVisible();
+    await expect(versionLabel).toHaveText(`Version ${manifest.version}`);
+    await expect(versionLabel).toHaveAttribute(
+      "data-app-version",
+      manifest.version
     );
+    await expect(versionLabel).toHaveAttribute(
+      "title",
+      `Version ${manifest.version}; exact build commit: ${manifest.buildId}`
+    );
+    await expect(page.getByText(/^Build [0-9a-f]{8}$/)).toHaveCount(0);
   }
 });
 
