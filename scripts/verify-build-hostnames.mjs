@@ -2,6 +2,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { extname, join, relative, resolve } from "node:path";
 import { loadEnv } from "vite";
 import { resolveBuildCommit } from "../vite.config.js";
+import { resolveBackendBuildCommit } from "./backend-build.mjs";
 import { resolveAppVersion } from "./app-version.mjs";
 
 const TARGETS = {
@@ -55,6 +56,9 @@ if (!target) {
 const projectDirectory = process.cwd();
 const packageMetadata = JSON.parse(
   readFileSync(resolve(projectDirectory, "package.json"), "utf8")
+);
+const releaseMetadata = JSON.parse(
+  readFileSync(resolve(projectDirectory, "release-metadata.json"), "utf8")
 );
 const buildDirectory = resolve(projectDirectory, target.outputDirectory);
 const loadedSettings = loadEnv(targetName, projectDirectory, "VITE_");
@@ -112,6 +116,12 @@ try {
 }
 
 const expectedBuildCommit = resolveBuildCommit(loadedSettings);
+const expectedBackendBuildCommit = resolveBackendBuildCommit(
+  releaseMetadata,
+  loadedSettings,
+  process.env,
+  { target: targetName },
+);
 const expectedAppVersion = resolveAppVersion(packageMetadata);
 
 if (versionManifest.version !== expectedAppVersion) {
@@ -126,6 +136,18 @@ if (
 ) {
   throw new Error(
     `${targetName} version.json buildId does not match the exact build commit`,
+  );
+}
+
+if (versionManifest.weatherBuildId !== expectedBuildCommit) {
+  throw new Error(
+    `${targetName} version.json weatherBuildId does not match the exact weather commit`,
+  );
+}
+
+if (versionManifest.backendBuildId !== expectedBackendBuildCommit) {
+  throw new Error(
+    `${targetName} version.json backendBuildId does not match release-metadata.json`,
   );
 }
 
@@ -146,6 +168,16 @@ if (
 
 if (
   !javascriptArtifacts.some(({ content }) =>
+    content.includes(expectedBackendBuildCommit),
+  )
+) {
+  throw new Error(
+    `${targetName} JavaScript bundle does not contain the paired backend commit`,
+  );
+}
+
+if (
+  !javascriptArtifacts.some(({ content }) =>
     content.includes(expectedAppVersion),
   )
 ) {
@@ -157,9 +189,12 @@ if (
 const requiredBuildLabelMarkers = [
   "build-version",
   "data-app-version",
+  "data-backend-build-id",
   "data-build-id",
+  "data-weather-build-id",
   "Version ",
-  "exact build commit:",
+  "exact weather commit:",
+  "exact backend commit:",
 ];
 const missingBuildLabelMarkers = requiredBuildLabelMarkers.filter(
   (marker) => !combinedArtifacts.includes(marker),

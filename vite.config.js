@@ -5,10 +5,14 @@ import { fileURLToPath } from 'node:url'
 import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import { resolveAppVersion } from './scripts/app-version.mjs'
+import { resolveBackendBuildCommit } from './scripts/backend-build.mjs'
 
 const PROJECT_DIRECTORY = fileURLToPath(new URL('.', import.meta.url))
 const PACKAGE_METADATA = JSON.parse(
   readFileSync(new URL('./package.json', import.meta.url), 'utf8'),
+)
+const RELEASE_METADATA = JSON.parse(
+  readFileSync(new URL('./release-metadata.json', import.meta.url), 'utf8'),
 )
 
 const REQUIRED_PUBLIC_SETTINGS = [
@@ -40,33 +44,50 @@ export const resolveBuildCommit = (
     )
   }
 
-  let buildCommit = cscwxBuildCommit || viteBuildCommit
-
-  if (!buildCommit) {
-    try {
-      buildCommit = execFileSync('git', ['rev-parse', 'HEAD'], {
-        cwd: PROJECT_DIRECTORY,
-        encoding: 'utf8',
-        stdio: ['ignore', 'pipe', 'ignore'],
-      }).trim()
-    } catch {
-      throw new Error(
-        'Set CSCWX_BUILD_COMMIT or VITE_BUILD_COMMIT when building outside a Git checkout',
-      )
-    }
+  let repositoryCommit
+  try {
+    repositoryCommit = execFileSync('git', ['rev-parse', 'HEAD'], {
+      cwd: PROJECT_DIRECTORY,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim()
+  } catch {
+    repositoryCommit = null
   }
 
-  if (!BUILD_COMMIT_PATTERN.test(buildCommit)) {
+  const suppliedBuildCommit = cscwxBuildCommit || viteBuildCommit
+  if (
+    suppliedBuildCommit &&
+    repositoryCommit &&
+    suppliedBuildCommit !== repositoryCommit
+  ) {
     throw new Error(
-      'The frontend build commit must be an exact lowercase 40-character Git SHA',
+      'The supplied frontend build commit must match the weather Git HEAD',
+    )
+  }
+
+  const buildCommit = suppliedBuildCommit || repositoryCommit
+
+  if (!BUILD_COMMIT_PATTERN.test(buildCommit || '')) {
+    throw new Error(
+      'Set an exact lowercase 40-character CSCWX_BUILD_COMMIT or VITE_BUILD_COMMIT when building outside a Git checkout',
     )
   }
 
   return buildCommit
 }
 
-const versionManifestPlugin = ({ appVersion, buildId }) => {
-  const source = `${JSON.stringify({ version: appVersion, buildId })}\n`
+const versionManifestPlugin = ({
+  appVersion,
+  backendBuildId,
+  weatherBuildId,
+}) => {
+  const source = `${JSON.stringify({
+    version: appVersion,
+    buildId: weatherBuildId,
+    weatherBuildId,
+    backendBuildId,
+  })}\n`
 
   const serveManifest = (request, response, next) => {
     if (request.url?.split('?', 1)[0] !== '/version.json') {
@@ -124,14 +145,30 @@ export default defineConfig(({ mode }) => {
   }
 
   const appVersion = resolveAppVersion(PACKAGE_METADATA)
-  const buildCommit = resolveBuildCommit(env)
+  const weatherBuildCommit = resolveBuildCommit(env)
+  const backendBuildCommit = resolveBackendBuildCommit(
+    RELEASE_METADATA,
+    env,
+    processEnvironment,
+    { target: mode },
+  )
 
   return {
     define: {
       'import.meta.env.VITE_APP_VERSION': JSON.stringify(appVersion),
-      'import.meta.env.VITE_BUILD_COMMIT': JSON.stringify(buildCommit),
+      'import.meta.env.VITE_BUILD_COMMIT': JSON.stringify(weatherBuildCommit),
+      'import.meta.env.VITE_BACKEND_BUILD_COMMIT': JSON.stringify(
+        backendBuildCommit,
+      ),
     },
-    plugins: [react(), versionManifestPlugin({ appVersion, buildId: buildCommit })],
+    plugins: [
+      react(),
+      versionManifestPlugin({
+        appVersion,
+        backendBuildId: backendBuildCommit,
+        weatherBuildId: weatherBuildCommit,
+      }),
+    ],
     server: {
       port: 3000
     }

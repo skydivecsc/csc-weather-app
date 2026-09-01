@@ -1,20 +1,20 @@
 import { useEffect, useState } from "react";
 import {
-  CURRENT_BUILD_ID,
   KIOSK_RELOAD_STORAGE_KEY,
   VERSION_CHECK_INTERVAL_MS,
+  VERSION_CHECK_TIMEOUT_MS,
   VERSION_MANIFEST_PATH,
 } from "./constants";
+import { resolveRemoteRelease } from "./release";
 import "./update-detector.css";
 
-const BUILD_ID_PATTERN = /^[0-9a-f]{40}$/;
 const reloadCurrentPage = () => window.location.reload();
 
 function UpdateDetector({
   isKiosk = false,
   reloadPage = reloadCurrentPage,
 }) {
-  const [availableBuildId, setAvailableBuildId] = useState(null);
+  const [availableReleaseKey, setAvailableReleaseKey] = useState(null);
 
   useEffect(() => {
     let activeController = null;
@@ -27,6 +27,10 @@ function UpdateDetector({
 
       const controller = new AbortController();
       activeController = controller;
+      const timeout = window.setTimeout(
+        () => controller.abort(),
+        VERSION_CHECK_TIMEOUT_MS
+      );
 
       try {
         const response = await fetch(VERSION_MANIFEST_PATH, {
@@ -39,23 +43,23 @@ function UpdateDetector({
         }
 
         const manifest = await response.json();
-        const remoteBuildId = manifest?.buildId;
+        const remoteRelease = resolveRemoteRelease(manifest);
 
         if (
           disposed ||
           controller.signal.aborted ||
-          typeof remoteBuildId !== "string" ||
-          !BUILD_ID_PATTERN.test(remoteBuildId)
+          !remoteRelease
         ) {
           return;
         }
 
-        setAvailableBuildId(
-          remoteBuildId === CURRENT_BUILD_ID ? null : remoteBuildId
+        setAvailableReleaseKey(
+          remoteRelease.updateAvailable ? remoteRelease.releaseKey : null
         );
       } catch {
         // A failed version check must not interrupt the live weather display.
       } finally {
+        window.clearTimeout(timeout);
         if (activeController === controller) {
           activeController = null;
         }
@@ -94,27 +98,31 @@ function UpdateDetector({
   }, []);
 
   useEffect(() => {
-    if (!isKiosk || !availableBuildId) {
+    if (!isKiosk || !availableReleaseKey) {
       return;
     }
 
     try {
       if (
-        sessionStorage.getItem(KIOSK_RELOAD_STORAGE_KEY) === availableBuildId
+        sessionStorage.getItem(KIOSK_RELOAD_STORAGE_KEY) ===
+        availableReleaseKey
       ) {
         return;
       }
 
-      sessionStorage.setItem(KIOSK_RELOAD_STORAGE_KEY, availableBuildId);
+      sessionStorage.setItem(
+        KIOSK_RELOAD_STORAGE_KEY,
+        availableReleaseKey
+      );
     } catch {
       // Without session storage, avoid a reload that could loop indefinitely.
       return;
     }
 
     reloadPage();
-  }, [availableBuildId, isKiosk, reloadPage]);
+  }, [availableReleaseKey, isKiosk, reloadPage]);
 
-  if (!availableBuildId) {
+  if (!availableReleaseKey) {
     return null;
   }
 

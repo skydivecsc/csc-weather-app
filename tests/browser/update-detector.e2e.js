@@ -1,12 +1,23 @@
 import { expect, test } from "@playwright/test";
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
 const REMOTE_BUILD_ID = "3333333333333333333333333333333333333333";
+const REMOTE_BACKEND_BUILD_ID = "4444444444444444444444444444444444444444";
 const REMOTE_APP_VERSION = "1.1.0";
 const KIOSK_RELOAD_STORAGE_KEY = "cscwx:kiosk-reloaded-build";
+const PROJECT_DIRECTORY = fileURLToPath(new URL("../..", import.meta.url));
+const CURRENT_WEATHER_BUILD_ID = execFileSync("git", ["rev-parse", "HEAD"], {
+  cwd: PROJECT_DIRECTORY,
+  encoding: "utf8",
+}).trim();
 
 const isolateUpdateChecks = async (
   page,
-  getRemoteBuildId = () => REMOTE_BUILD_ID
+  getRemoteManifest = () => ({
+    version: REMOTE_APP_VERSION,
+    buildId: REMOTE_BUILD_ID,
+  })
 ) => {
   await page.routeWebSocket(
     "wss://api.skydivecsc.com/graphql",
@@ -16,14 +27,14 @@ const isolateUpdateChecks = async (
   );
 
   await page.route("**/version.json", (route) => {
-    const buildId = getRemoteBuildId();
+    const manifest = getRemoteManifest();
 
-    if (!buildId) {
+    if (!manifest) {
       return route.continue();
     }
 
     return route.fulfill({
-      body: JSON.stringify({ version: REMOTE_APP_VERSION, buildId }),
+      body: JSON.stringify(manifest),
       contentType: "application/json",
       headers: { "Cache-Control": "no-store" },
       status: 200,
@@ -72,7 +83,9 @@ test("focus detects a release that appeared after startup", async ({ page }) => 
 
   await isolateUpdateChecks(page, () => {
     versionRequests += 1;
-    return releaseAvailable ? REMOTE_BUILD_ID : null;
+    return releaseAvailable
+      ? { version: REMOTE_APP_VERSION, buildId: REMOTE_BUILD_ID }
+      : null;
   });
   await page.goto("/");
   await expect.poll(() => versionRequests).toBeGreaterThan(0);
@@ -102,6 +115,8 @@ test("the exact current build is visible on ordinary and kiosk routes", async ({
     /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/
   );
   expect(manifest.buildId).toMatch(/^[0-9a-f]{40}$/);
+  expect(manifest.weatherBuildId).toBe(manifest.buildId);
+  expect(manifest.backendBuildId).toMatch(/^[0-9a-f]{40}$/);
 
   for (const pathname of ["/", "/loadingarea"]) {
     if (page.url() !== new URL(pathname, page.url()).href) {
@@ -119,7 +134,15 @@ test("the exact current build is visible on ordinary and kiosk routes", async ({
     );
     await expect(versionLabel).toHaveAttribute(
       "title",
-      `Version ${manifest.version}; exact build commit: ${manifest.buildId}`
+      `Version ${manifest.version}; exact weather commit: ${manifest.weatherBuildId}; exact backend commit: ${manifest.backendBuildId}`
+    );
+    await expect(versionLabel).toHaveAttribute(
+      "data-weather-build-id",
+      manifest.weatherBuildId
+    );
+    await expect(versionLabel).toHaveAttribute(
+      "data-backend-build-id",
+      manifest.backendBuildId
     );
     await expect(page.getByText(/^Build [0-9a-f]{8}$/)).toHaveCount(0);
   }
@@ -156,4 +179,41 @@ test("the loading-area kiosk automatically reloads only once", async ({
       .getByRole("status")
       .filter({ hasText: "A newer CSC Weather version is available" })
   ).toBeVisible();
+});
+
+test("a backend-only release reloads the kiosk once per paired release", async ({
+  page,
+}) => {
+  const releaseKey = `${CURRENT_WEATHER_BUILD_ID}:${REMOTE_BACKEND_BUILD_ID}`;
+  await isolateUpdateChecks(page, () => ({
+    version: "1.0.1",
+    buildId: CURRENT_WEATHER_BUILD_ID,
+    weatherBuildId: CURRENT_WEATHER_BUILD_ID,
+    backendBuildId: REMOTE_BACKEND_BUILD_ID,
+  }));
+  let navigationCount = 0;
+
+  page.on("request", (request) => {
+    if (
+      request.isNavigationRequest() &&
+      request.frame() === page.mainFrame()
+    ) {
+      navigationCount += 1;
+    }
+  });
+
+  await page.goto("/loadingarea");
+
+  await expect
+    .poll(() =>
+      page.evaluate(
+        (key) => sessionStorage.getItem(key),
+        KIOSK_RELOAD_STORAGE_KEY
+      )
+    )
+    .toBe(releaseKey);
+  await expect.poll(() => navigationCount).toBe(2);
+
+  await page.waitForTimeout(1000);
+  expect(navigationCount).toBe(2);
 });
