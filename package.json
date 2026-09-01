@@ -1,7 +1,7 @@
 {
   "name": "csc-weather-app",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.1",
   "type": "module",
   "engines": {
     "node": ">=24 <25"
@@ -20,6 +20,7 @@
     "test": "vitest run",
     "test:browser": "playwright test",
     "test:watch": "vitest",
+    "verify:version-bump": "node scripts/verify-version-bump.mjs",
     "verify:builds": "npm run verify:staging && npm run verify:production",
     "verify:staging": "node scripts/verify-build-hostnames.mjs staging",
     "verify:production": "node scripts/verify-build-hostnames.mjs production"

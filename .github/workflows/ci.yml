@@ -23,11 +23,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v6
         with:
           node-version: "24"
           cache: npm
       - run: npm ci
+      - name: Enforce release version policy
+        env:
+          VERSION_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: npm run verify:version-bump -- "$VERSION_BASE_SHA"
       - run: npm run lint
       - run: npm test
 

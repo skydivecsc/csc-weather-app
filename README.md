@@ -53,6 +53,42 @@ placeholders, reject `cscwx2.com` hostnames in production, and reject
 `cscwx.com` hostnames in staging. CI runs lint/tests plus both build-and-scan
 paths for changes targeting either `cscwx2-staging` or `main`.
 
+## Versioning
+
+The application version in `package.json` is the canonical CSCWX release
+version shown in both weather footers and emitted in `version.json`. It must
+match the login/backend and trivia release. Use strict semantic versions with
+no prefix or prerelease suffix:
+
+- Features increment the minor version: `npm version minor --no-git-tag-version`
+- Fixes increment the patch version: `npm version patch --no-git-tag-version`
+- Major redesigns or incompatible changes increment the major version:
+  `npm version major --no-git-tag-version`
+
+Commit both `package.json` and `package-lock.json` with every deployed behavior
+change. Application code, dependencies, public assets, and build/deployment
+configuration all require an increased version. Documentation, tests, and
+CI-only changes are exempt; CI enforces this policy against the base commit.
+
+`release-metadata.json` pins the exact accepted staging backend commit and its
+tree. A staging deployment may set `CSCWX_BACKEND_COMMIT` (or
+`VITE_BACKEND_BUILD_COMMIT`) as an independent assertion, and it must match the
+checked commit. A protected production PR merge has a new commit ID even when
+its content tree is unchanged. In that one case, the production build may use
+the merge commit only when `CSCWX_BACKEND_TREE` supplies the exact checked tree
+and `CSCWX_BACKEND_REPOSITORY` identifies a Git object store in which the build
+can independently resolve that commit to that tree. The production provenance
+gate separately proves both promoted repositories retain their accepted trees.
+This permits true production commit diagnostics without allowing different
+backend content to be paired silently.
+
+The generated `version.json` contains `version`, `weatherBuildId`, and
+`backendBuildId`. Its legacy `buildId` remains an alias of `weatherBuildId` so
+already-open clients continue to detect a new weather build. New clients compare
+both component commits, including backend-only changes. The short visible label
+is `Version <major.minor.patch>`; both full commits are available in its title
+and data attributes for diagnostics.
+
 ## Features
 
 ### Home Page
