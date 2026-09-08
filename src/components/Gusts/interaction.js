@@ -10,6 +10,7 @@ export function attachHistoryInteraction(chart, announcement) {
   const listeners = [];
   let samples = [];
   let activeKey = null;
+  let activeTarget = {};
   let gesture = null;
 
   const listen = (target, name, handler, options) => {
@@ -18,6 +19,7 @@ export function attachHistoryInteraction(chart, announcement) {
   };
   const dismiss = () => {
     activeKey = null;
+    delete chart.$historyAnchor;
     announcement.textContent = "";
     const hadActive = chart.getActiveElements().length || chart.tooltip?.getActiveElements().length;
     chart.setActiveElements([]);
@@ -33,6 +35,8 @@ export function attachHistoryInteraction(chart, announcement) {
     if (!elements.length) return dismiss();
     const point = anchor ?? chart.getDatasetMeta(elements[0].datasetIndex).data[index];
     activeKey = keyFor(sample);
+    activeTarget = { strip: anchor?.strip ?? false, datasetIndex: anchor?.datasetIndex ?? 0 };
+    chart.$historyAnchor = { index, ...activeTarget };
     chart.setActiveElements(elements);
     chart.tooltip?.setActiveElements(elements, { x: point.x, y: point.y });
     chart.update("none");
@@ -43,20 +47,26 @@ export function attachHistoryInteraction(chart, announcement) {
     if (!rect.width || !rect.height) return dismiss();
     let nearest = null;
     let distance = HIT_DISTANCE;
+    const consider = (point, index, target) => {
+      const dx = event.clientX - rect.left - point.x * rect.width / chart.width;
+      const dy = event.clientY - rect.top - point.y * rect.height / chart.height;
+      const candidate = Math.hypot(dx, dy);
+      if (candidate <= distance) {
+        distance = candidate;
+        nearest = { index, point: { x: point.x, y: point.y, ...target } };
+      }
+    };
     for (const datasetIndex of [0, 1]) {
       if (!chart.isDatasetVisible(datasetIndex)) continue;
       chart.getDatasetMeta(datasetIndex).data.forEach((point, index) => {
         if (!samples[index] || point.skip || !Number.isFinite(point.x) || !Number.isFinite(point.y)) return;
         const area = chart.chartArea;
         if (point.x < area.left || point.x > area.right || point.y < area.top || point.y > area.bottom) return;
-        const dx = event.clientX - rect.left - point.x * rect.width / chart.width;
-        const dy = event.clientY - rect.top - point.y * rect.height / chart.height;
-        const candidate = Math.hypot(dx, dy);
-        if (candidate <= distance) {
-          distance = candidate;
-          nearest = { index, point };
-        }
+        consider(point, index, { datasetIndex });
       });
+    }
+    for (const point of chart.$directionStrip?.points ?? []) {
+      if (samples[point.index]) consider(point, point.index, { strip: true });
     }
     if (nearest) show(nearest.index, nearest.point);
     else dismiss();
@@ -123,7 +133,11 @@ export function attachHistoryInteraction(chart, announcement) {
       samples = nextSamples;
       if (activeKey !== null) {
         const index = samples.findIndex((sample) => keyFor(sample) === activeKey);
-        if (index >= 0) show(index);
+        if (index >= 0) {
+          const point = activeTarget.strip ? chart.$directionStrip?.points[index]
+            : chart.getDatasetMeta(activeTarget.datasetIndex ?? 0).data[index];
+          show(index, { ...point, ...activeTarget });
+        }
         else dismiss();
       }
     },

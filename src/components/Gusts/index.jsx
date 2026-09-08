@@ -3,7 +3,8 @@ import { Line } from "react-chartjs-2";
 import { useCallback, useContext, useEffect, useId, useMemo, useRef } from "react";
 import { WeatherContext } from "../../context/WeatherContextValue";
 import LoadingDots from "../LoadingDots";
-import { directionLabel, flowRotation, recordedDirection, windArrowMarker } from "./direction";
+import { directionLabel, recordedDirection } from "./direction";
+import { directionStrip } from "./directionStrip";
 import { attachHistoryInteraction } from "./interaction";
 import "./gusts.css";
 
@@ -44,25 +45,23 @@ function GustChart() {
   }, [samples]);
 
   const data = useMemo(() => {
-    // Keep every minute visible without overlapping markers on narrow screens.
-    const markerSize = ({ chart }) => Math.max(8, Math.min(18,
-      Math.floor((chart.chartArea?.width ?? chart.width ?? 300) / Math.max(1, samples.length - 1) * 0.85)
-    ));
     return ({
     labels: samples.map((row) => row.time),
     datasets: [
       {
         label: "Wind Speed",
         data: samples.map((row) => row.wind),
+        historyDirections: samples.map(recordedDirection),
         fill: true,
         backgroundColor: "rgba(8, 228, 209, .8)",
         borderColor: "rgba(0,0,0,1)",
         pointBackgroundColor: "rgb(8, 228, 209)",
         pointBorderColor: "#fff",
-        pointStyle: (context) => recordedDirection(samples[context.dataIndex]) === null ? "circle" : windArrowMarker(markerSize(context)),
-        pointRotation: samples.map((row) => recordedDirection(row) === null ? 0 : flowRotation(recordedDirection(row))),
-        pointRadius: (context) => recordedDirection(samples[context.dataIndex]) === null ? 3 : markerSize(context) / 2,
-        pointHoverRadius: (context) => recordedDirection(samples[context.dataIndex]) === null ? 5 : markerSize(context) / 2,
+        pointStyle: "circle",
+        pointRadius: 3,
+        pointHoverRadius: 5,
+        pointHoverBackgroundColor: "#fff",
+        pointHoverBorderColor: "rgba(75,192,192,1)",
         pointHitRadius: 14,
         tension: 0.4,
       },
@@ -77,6 +76,8 @@ function GustChart() {
         pointStyle: "circle",
         pointRadius: 3,
         pointHoverRadius: 5,
+        pointHoverBackgroundColor: "#fff",
+        pointHoverBorderColor: "rgba(75,192,192,1)",
         pointHitRadius: 14,
         tension: 0.4,
       },
@@ -88,10 +89,14 @@ function GustChart() {
     maintainAspectRatio: false,
     // Do not tween headings through invented intermediate directions.
     animation: false,
-    layout: { padding: 10 },
+    layout: { padding: { top: 10, left: 10, right: 10, bottom: 56 } },
     // Native pointer/keyboard input is handled with a two-dimensional hit test.
     events: [],
     plugins: {
+      directionStrip: {
+        color: darkTheme === "true" ? "rgb(8, 228, 209)" : "#111",
+        background: darkTheme === "true" ? "rgba(8,228,209,0.06)" : "rgba(0,0,0,0.05)",
+      },
       title: {
         display: true,
         font: { size: isLoadingArea ? 13 : 16, weight: "bold" },
@@ -100,6 +105,7 @@ function GustChart() {
       },
       legend: { display: false },
       tooltip: {
+        position: "cscwxHistory",
         callbacks: {
           title: (items) => items.length ? `${samples[items[0].dataIndex].time} Chicago time` : "",
           label: (item) => `${item.dataset.label}: ${item.formattedValue} ${unit}`,
@@ -135,14 +141,15 @@ function GustChart() {
           className="chart"
           data={data}
           options={options}
-          aria-label="Wind and gust speed history with wind direction arrows"
+          plugins={[directionStrip]}
+          aria-label="Wind and gust speed history with a wind direction strip below"
           tabIndex={0}
           aria-describedby={`${legendId} ${instructionsId}`}
           fallbackContent="Wind and gust speed history. Focus the chart and use Left and Right arrow keys to hear individual samples."
         />
       </div>
       <p className="gust-direction-legend" id={legendId}>
-        Arrows show wind flow; direction labels show wind FROM.
+        Arrows show flow; degrees show wind FROM.
       </p>
       <span className="gust-chart-sr-only" id={instructionsId}>
         Use Left and Right arrow keys to inspect samples. Press Escape to dismiss details.

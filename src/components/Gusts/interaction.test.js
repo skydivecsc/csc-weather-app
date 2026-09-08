@@ -33,6 +33,18 @@ function setup() {
 }
 
 describe("chart popup interaction", () => {
+  it("selects strip arrows with the same proximity rule and follows their sample on refresh", () => {
+    const s = setup();
+    s.chart.$directionStrip = { points: [{ x: 20, y: 175, index: 0 }, { x: 90, y: 175, index: 1 }] };
+    s.pointer("pointerup", { clientX: 100, clientY: 195 });
+    expect(s.announcement.textContent).toContain("Wind speed: 2 kts");
+    expect(s.chart.$historyAnchor).toMatchObject({ index: 1, strip: true });
+    s.controller.setSamples([row(2), row(3)]);
+    expect(s.chart.$historyAnchor).toMatchObject({ index: 0, strip: true });
+    s.pointer("pointerup", { clientX: 100, clientY: 220 });
+    expect(s.chart.getActiveElements()).toEqual([]);
+    expect(s.chart.$historyAnchor).toBeUndefined();
+  });
   it("uses a 24px two-dimensional marker hit area, including gust markers", () => {
     const s = setup();
     s.pointer("pointermove", { clientY: 144 });

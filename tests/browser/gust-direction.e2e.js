@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 const API_ORIGIN = "https://login.cscwx2.com";
-const LEGEND = "Arrows show wind flow; direction labels show wind FROM.";
+const LEGEND = "Arrows show flow; degrees show wind FROM.";
 const aloftMap = (value) =>
   Object.fromEntries(
     Array.from({ length: 18 }, (_, index) => [`${(index + 1) * 1000}`, value])
@@ -101,6 +101,9 @@ const chartSnapshot = (page) => page.evaluate(async () => {
   return {
     title: chart.options.plugins.title.text,
     area: { ...chart.chartArea },
+    strip: chart.$directionStrip,
+    axisBottom: chart.scales.x.bottom,
+    height: chart.height,
     tooltip: {
       opacity: chart.tooltip.opacity ?? 0,
       indexes: (chart.tooltip.dataPoints ?? []).map(({ dataIndex }) => dataIndex),
@@ -160,7 +163,7 @@ const refreshHistory = async (page, state) => {
 };
 
 for (const pathname of ["/gusts", "/loadingarea"]) {
-  test(`${pathname} draws historical wind arrows and selects the matching sample by pointer`, async ({ page, isMobile }) => {
+  test(`${pathname} draws a separate historical direction strip and selects its sample by pointer`, async ({ page, isMobile }) => {
     const state = await isolateWeather(page);
     await page.goto(pathname);
     const chart = page.locator(".gust-chart");
@@ -177,15 +180,14 @@ for (const pathname of ["/gusts", "/loadingarea"]) {
     const gust = snapshot.datasets[1];
     expect(wind.label).toBe("Wind Speed");
     expect(gust.label).toBe("Gust Speed");
-    expect(wind.points.map(({ marker }) => marker)).toEqual([
-      "canvas", "canvas", "canvas", "circle", "circle", "circle", "canvas",
-    ]);
-    expect(wind.points.slice(0, 3).map(({ rotation }) => rotation)).toEqual([180, 270, 90]);
-    expect(wind.points.filter(({ marker }) => marker === "canvas")
-      .every(({ paintedMarker }) => paintedMarker)).toBe(true);
+    expect(wind.points.every(({ marker }) => marker === "circle")).toBe(true);
+    expect(snapshot.strip.points.map(({ rotation }) => rotation)).toEqual([180, 270, 90, null, null, null, 0]);
+    expect(snapshot.strip.top).toBeGreaterThan(snapshot.axisBottom);
+    expect(snapshot.strip.bottom).toBeLessThan(snapshot.height);
+    snapshot.strip.points.forEach((point, index) => expect(point.x).toBeCloseTo(wind.points[index].x, 3));
     expect(gust.points.every(({ marker }) => marker === "circle")).toBe(true);
 
-    const position = { x: wind.points[2].x, y: wind.points[2].y };
+    const position = { x: snapshot.strip.points[2].x, y: snapshot.strip.points[2].y };
     await pointInput(page, isMobile, position, { hover: true });
     await expectSample(page, 2, "Wind from 270° (W)");
     await expect(sampleDetails(page)).toContainText(/Wind speed: 12 kts/i);
@@ -210,7 +212,7 @@ for (const pathname of ["/gusts", "/loadingarea"]) {
     await expect(sampleDetails(page)).toContainText(new RegExp(`Gust speed: ${useKnots ? 19 : 22} ${useKnots ? "kts" : "mph"}`, "i"));
     await expect(page.locator(".Applight")).toBeVisible();
     expect(snapshot.title).toContain(`Wind Speed in ${useKnots ? "kts" : "mph"}`);
-    expect(snapshot.datasets[0].points[2].rotation).toBe(90);
+    expect(snapshot.strip.points[2].rotation).toBe(90);
     expect(state.forbiddenRequests).toEqual([]);
   });
 
@@ -240,13 +242,20 @@ for (const pathname of ["/gusts", "/loadingarea"]) {
     expect(snapshot.datasets[1].points).toHaveLength(30);
     await expect(page.getByRole("combobox", { name: "History sample" })).toHaveCount(0);
     const spacing = windPoints[1].x - windPoints[0].x;
-    for (const point of windPoints) {
-      expect(point.marker).toBe("canvas");
-      expect(point.paintedMarker).toBe(true);
-      expect(point.markerWidth).toBeGreaterThanOrEqual(8);
-      expect(point.markerWidth).toBeLessThanOrEqual(18);
-      expect(point.markerWidth).toBeLessThanOrEqual(spacing);
+    expect(windPoints.every((point) => point.marker === "circle")).toBe(true);
+    expect(snapshot.strip.points).toHaveLength(30);
+    for (const point of snapshot.strip.points) {
+      expect(point.size).toBeGreaterThanOrEqual(4);
+      expect(point.size).toBeLessThanOrEqual(18);
+      expect(point.size).toBeLessThanOrEqual(spacing);
+      expect(point.x).toBeCloseTo(windPoints[point.index].x, 3);
     }
+    expect(snapshot.strip.labels.length).toBeGreaterThan(1);
+    if (isMobile) expect(snapshot.strip.labels.length).toBeLessThan(30);
+    snapshot.strip.labels.forEach((label, index) => {
+      expect(label.text).toBe(`${state.history[label.index].direction}°`);
+      if (index) expect(label.left).toBeGreaterThanOrEqual(snapshot.strip.labels[index - 1].right + 8);
+    });
     const box = await chart.boundingBox();
     expect(box.x).toBeGreaterThanOrEqual(0);
     expect(box.x + box.width).toBeLessThanOrEqual(page.viewportSize().width);
@@ -298,6 +307,36 @@ for (const pathname of ["/gusts", "/loadingarea"]) {
     const calm = snapshot.datasets[0].points[3];
     await pointInput(page, isMobile, { x: calm.x, y: calm.y - 2 });
     await expectSample(page, 3, "Calm — direction unavailable");
+    expect(state.forbiddenRequests).toEqual([]);
+  });
+
+  test(`${pathname} selects strip arrows, dismisses away, and realigns on rolling history and resize`, async ({ page, isMobile }) => {
+    const state = await isolateWeather(page);
+    await page.goto(pathname);
+    const canvas = chartCanvas(page);
+    await canvas.scrollIntoViewIfNeeded();
+    let point = (await chartSnapshot(page)).strip.points[2];
+    await pointInput(page, isMobile, { x: point.x, y: point.y });
+    await expectSample(page, 2, "Wind from 270° (W)");
+    state.history = state.history.slice(1);
+    await refreshHistory(page, state);
+    await expect.poll(async () => (await chartSnapshot(page)).strip.points.length).toBe(6);
+    await expectSample(page, 1, "Wind from 270° (W)");
+    const viewport = page.viewportSize();
+    await page.setViewportSize({ width: viewport.width + 100, height: viewport.height });
+    await expect.poll(async () => {
+      const current = await chartSnapshot(page);
+      return current.strip.points.every((p, i) => Math.abs(p.x - current.datasets[0].points[i].x) < 0.1);
+    }).toBe(true);
+    // Clear any browser-generated scroll/resize dismissal, then test the new geometry.
+    await canvas.scrollIntoViewIfNeeded();
+    point = (await chartSnapshot(page)).strip.points[1];
+    await pointInput(page, isMobile, { x: point.x, y: point.y });
+    await expectSample(page, 1, "Wind from 270° (W)");
+    await pointInput(page, isMobile, { x: point.x, y: point.y - 26 });
+    await expectClosed(page);
+    await refreshHistory(page, state);
+    await expectClosed(page);
     expect(state.forbiddenRequests).toEqual([]);
   });
 
@@ -366,7 +405,7 @@ for (const pathname of ["/gusts", "/loadingarea"]) {
     await page.goto(pathname);
     const canvas = chartCanvas(page);
     await canvas.scrollIntoViewIfNeeded();
-    const point = (await chartSnapshot(page)).datasets[0].points[2];
+    const point = (await chartSnapshot(page)).strip.points[2];
     if (browserName === "chromium") {
       // Actual native touchscreen input covers compatibility-click suppression.
       const bounds = await canvas.boundingBox();
@@ -401,7 +440,7 @@ for (const pathname of ["/gusts", "/loadingarea"]) {
     await expectClosed(page);
     // A genuine tap after a completed scroll must still open normally.
     await canvas.scrollIntoViewIfNeeded();
-    const currentPoint = (await chartSnapshot(page)).datasets[0].points[2];
+    const currentPoint = (await chartSnapshot(page)).strip.points[2];
     await canvas.tap({ position: { x: currentPoint.x, y: currentPoint.y } });
     await expectSample(page, 2, "Wind from 270° (W)");
     expect(state.forbiddenRequests).toEqual([]);

@@ -50,8 +50,10 @@ describe("historical wind chart", () => {
   it("matches each marker and tooltip to its own row, retaining gust circles", () => {
     render(view([row(1, "270"), row(2, 360), row(3, 0)]));
     const { data, options } = chart.props;
-    expect([0, 1, 2].map((dataIndex) => data.datasets[0].pointStyle({ dataIndex, chart: { width: 300 } }))).toEqual(["test-arrow", "test-arrow", "circle"]);
-    expect(data.datasets[0].pointRotation).toEqual([90, 180, 0]);
+    expect(data.datasets[0].pointStyle).toBe("circle");
+    expect(data.datasets[0].historyDirections).toEqual([270, 360, null]);
+    expect(chart.props.plugins[0].id).toBe("directionStrip");
+    expect(options.layout.padding.bottom).toBe(56);
     expect(data.datasets[1].pointStyle).toBe("circle");
     expect(options.plugins.tooltip.callbacks.afterBody([{ dataIndex: 0 }])).toBe("Wind from 270° (W)");
     expect(options.plugins.tooltip.callbacks.afterBody([{ dataIndex: 1 }])).toBe("Wind from 360° (N)");
@@ -105,7 +107,8 @@ describe("historical wind chart", () => {
   it("uses arrows and fixed knots on loadingarea despite an mph preference", () => {
     window.history.replaceState({}, "", "/loadingarea");
     render(view([row(1, 270)], { speedUnit: "false" }));
-    expect(chart.props.data.datasets[0].pointStyle({ dataIndex: 0, chart: { width: 300 } })).toBe("test-arrow");
+    expect(chart.props.data.datasets[0].pointStyle).toBe("circle");
+    expect(chart.props.data.datasets[0].historyDirections).toEqual([270]);
     expect(chart.props.data.datasets[0].data).toEqual([10]);
     expect(chart.props.options.plugins.tooltip.callbacks.label({ dataset: chart.props.data.datasets[0], formattedValue: "10" })).toBe("Wind Speed: 10 kts");
   });
