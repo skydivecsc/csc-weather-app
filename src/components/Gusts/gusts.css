@@ -1,22 +1,10 @@
 .gust-chart {
   display: flex;
-  flex-direction: column;
-  align-items: stretch;
+  align-items: flex-start;
+  justify-content: center;
   width: 90%;
   height: 100%;
-  min-height: 0;
-  min-width: 0;
-  box-sizing: border-box;
-  color: rgb(8, 228, 209);
-  font-size: 0.85rem;
 }
-.gust-chart-light { color: #111; }
-.gust-chart-frame { position: relative; flex: 1; min-height: 100px; min-width: 0; }
-.gust-direction-legend { margin: 0.25rem 0; font-size: 0.8rem; text-align: center; }
-.gust-chart canvas:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
-.gust-chart-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
-.gust-chart-kiosk { font-size: 0.75rem; }
-.gust-chart-kiosk .gust-direction-legend { font-size: 0.7rem; }
 #gust-app {
   background-color: rgba(17, 17, 17, 0.3);
   padding: 10px;
