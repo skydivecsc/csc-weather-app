@@ -103,6 +103,19 @@ Home Page displays the current up-to-the-second real-time wind speed and gust as
 
 The Gusts Chart displays live wind data for the previous 30 minutes in kts or mph depending on your setting. The teal portion represents wind speed and the red portion represents max gust. This information is crucial for safety planning.
 
+On `/gusts` and `/loadingarea`, bright yellow wind-flow arrows appear on a
+solid near-black strip directly between the bars and time labels. Each arrow
+aligns with an actual history sample; narrow screens show fewer indicators to
+keep the arrows readable. Speed data, timestamps, original chart styling and
+default tooltip behavior are unchanged. There are no new visible labels,
+degree values, legends, controls or details panels. Loading area uses knots.
+
+The history supplies one wind direction per sample, not a separate gust
+direction. Arrows point with airflow (opposite the recorded wind-FROM bearing).
+Calm, placeholder and unavailable directions have no arrow. Legacy zero
+headings are ambiguous because missing directions were stored as zero; 360°
+is north. No additional API request is made for the arrows.
+
 ### Aloft
 
 ![aloft](/src/images/readme/Aloft.png)

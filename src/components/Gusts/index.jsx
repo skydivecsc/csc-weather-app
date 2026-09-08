@@ -4,6 +4,8 @@ import 'chartjs-plugin-annotation';
 import { useContext } from 'react';
 import { WeatherContext } from '../../context/WeatherContextValue';
 import LoadingDots from '../LoadingDots';
+import { recordedDirection } from './direction';
+import { directionStrip } from './directionStrip';
 import './gusts.css'
 
 function GustChart() {
@@ -34,6 +36,7 @@ function GustChart() {
             {
                 label: 'Wind Speed',
                 data: speeds,
+                historyDirections: gustData.map(recordedDirection),
 
                 fill: true,
                 backgroundColor: 'rgba(8, 228, 209, .8)', // Fill color
@@ -72,6 +75,8 @@ function GustChart() {
         <div className="gust-chart" id={window.location.pathname !== '/loadingarea' ? (darkTheme === 'true' ? 'gust-app' : 'gust-app-light') : null}>
             <Line
                 className='chart'
+                plugins={[directionStrip]}
+                aria-label="Wind and gust speed history. Arrows below the plot show wind flow at the aligned measurement time; no arrow means direction is unavailable."
                 data={data}
                 options={{
                     maintainAspectRatio: false,
@@ -102,6 +107,8 @@ function GustChart() {
                             },
                         },
                         x: {
+                            // Reserve only the narrow arrow band above the existing timestamps.
+                            ticks: { padding: 24 },
                             grid: {
                                 color: `rgb(0, 0, 0)`,
                             }
