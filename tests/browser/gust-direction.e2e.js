@@ -100,6 +100,11 @@ const chartSnapshot = (page) => page.evaluate(async () => {
   if (!chart) throw new Error("The gust chart has not initialized");
   return {
     title: chart.options.plugins.title.text,
+    area: { ...chart.chartArea },
+    tooltip: {
+      opacity: chart.tooltip.opacity ?? 0,
+      indexes: (chart.tooltip.dataPoints ?? []).map(({ dataIndex }) => dataIndex),
+    },
     settled: chart.data.datasets.every((_, index) =>
       chart.getDatasetMeta(index).data.every((point) => {
         const target = point.getProps(["x", "y"], true);
@@ -126,7 +131,33 @@ const chartSnapshot = (page) => page.evaluate(async () => {
   };
 });
 
-const sampleDetails = (page) => page.getByRole("status", { name: "Selected wind sample" });
+const sampleDetails = (page) => page.getByRole("status", { name: "Active wind sample" });
+const chartCanvas = (page) => page.locator(".gust-chart canvas");
+
+const expectClosed = async (page) => {
+  await expect(sampleDetails(page)).toHaveText("");
+  await expect.poll(async () => (await chartSnapshot(page)).tooltip.opacity).toBe(0);
+};
+
+const expectSample = async (page, index, direction) => {
+  await expect(sampleDetails(page)).toContainText(direction);
+  await expect.poll(async () => (await chartSnapshot(page)).tooltip.opacity).toBe(1);
+  const snapshot = await chartSnapshot(page);
+  expect(snapshot.tooltip.indexes).toEqual([index, index]);
+};
+
+const pointInput = async (page, isMobile, position, { hover = false } = {}) => {
+  const canvas = chartCanvas(page);
+  if (isMobile) await canvas.tap({ position });
+  else if (hover) await canvas.hover({ position });
+  else await canvas.click({ position });
+};
+
+const refreshHistory = async (page, state) => {
+  const before = state.gustRequests;
+  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true })));
+  await expect.poll(() => state.gustRequests).toBeGreaterThan(before);
+};
 
 for (const pathname of ["/gusts", "/loadingarea"]) {
   test(`${pathname} draws historical wind arrows and selects the matching sample by pointer`, async ({ page, isMobile }) => {
@@ -135,7 +166,9 @@ for (const pathname of ["/gusts", "/loadingarea"]) {
     const chart = page.locator(".gust-chart");
     const canvas = chart.locator("canvas");
     await expect(chart.getByText(LEGEND, { exact: true })).toBeVisible();
-    await expect(sampleDetails(page)).toContainText("Wind from 180° (S)");
+    await expect(page.getByRole("combobox", { name: "History sample" })).toHaveCount(0);
+    await expect(chart.locator(".gust-sample-controls, .gust-sample-details")).toHaveCount(0);
+    await expectClosed(page);
     await canvas.scrollIntoViewIfNeeded();
     await expect.poll(async () => (await chartSnapshot(page)).settled).toBe(true);
 
@@ -153,34 +186,29 @@ for (const pathname of ["/gusts", "/loadingarea"]) {
     expect(gust.points.every(({ marker }) => marker === "circle")).toBe(true);
 
     const position = { x: wind.points[2].x, y: wind.points[2].y };
-    if (isMobile) await canvas.tap({ position });
-    else await canvas.hover({ position });
-    await expect(sampleDetails(page)).toContainText("Wind from 270° (W)");
-    await expect(sampleDetails(page)).toContainText("Wind speed: 12 kts");
-    await expect(sampleDetails(page)).toContainText("Gust speed: 18 kts");
-
-    if (!isMobile) {
-      const selector = page.getByRole("combobox", { name: "History sample" });
-      await selector.focus();
-      await selector.press("ArrowUp");
-      await expect(sampleDetails(page)).toContainText("Wind from 90° (E)");
-      await expect(sampleDetails(page)).toContainText("Wind speed: 11 kts");
-    }
+    await pointInput(page, isMobile, position, { hover: true });
+    await expectSample(page, 2, "Wind from 270° (W)");
+    await expect(sampleDetails(page)).toContainText(/Wind speed: 12 kts/i);
+    await expect(sampleDetails(page)).toContainText(/Gust speed: 18 kts/i);
+    await expect(sampleDetails(page)).toContainText("Chicago time");
     const frame = await page.locator(".gust-chart-frame").boundingBox();
     expect(frame.width).toBeGreaterThan(100);
     expect(frame.height).toBeGreaterThan(80);
     expect(state.forbiddenRequests).toEqual([]);
   });
 
-  test(`${pathname} preserves light theme and route-specific units with historical direction`, async ({ page }) => {
+  test(`${pathname} preserves light theme and route-specific units with historical direction`, async ({ page, isMobile }) => {
     const state = await isolateWeather(page, { darkTheme: "false", speedUnit: "false" });
     await page.goto(pathname);
-    await expect(sampleDetails(page)).toContainText("Wind from 180° (S)");
-    const useKnots = pathname === "/loadingarea";
-    await expect(sampleDetails(page)).toContainText(`Wind speed: ${useKnots ? 13 : 15} ${useKnots ? "kts" : "mph"}`);
-    await expect(sampleDetails(page)).toContainText(`Gust speed: ${useKnots ? 19 : 22} ${useKnots ? "kts" : "mph"}`);
-    await expect(page.locator(".Applight")).toBeVisible();
+    await expect(page.locator(".gust-chart")).toBeVisible();
     const snapshot = await chartSnapshot(page);
+    const point = snapshot.datasets[0].points[6];
+    await pointInput(page, isMobile, { x: point.x, y: point.y });
+    await expectSample(page, 6, "Wind from 180° (S)");
+    const useKnots = pathname === "/loadingarea";
+    await expect(sampleDetails(page)).toContainText(new RegExp(`Wind speed: ${useKnots ? 13 : 15} ${useKnots ? "kts" : "mph"}`, "i"));
+    await expect(sampleDetails(page)).toContainText(new RegExp(`Gust speed: ${useKnots ? 19 : 22} ${useKnots ? "kts" : "mph"}`, "i"));
+    await expect(page.locator(".Applight")).toBeVisible();
     expect(snapshot.title).toContain(`Wind Speed in ${useKnots ? "kts" : "mph"}`);
     expect(snapshot.datasets[0].points[2].rotation).toBe(90);
     expect(state.forbiddenRequests).toEqual([]);
@@ -202,15 +230,15 @@ for (const pathname of ["/gusts", "/loadingarea"]) {
       gust_speed: `${13 + (index % 3) * 0.1}`,
     }));
     await page.goto(pathname);
-    await expect(sampleDetails(page)).toContainText("Wind from 225° (SW)");
     const chart = page.locator(".gust-chart");
+    await expect(chart).toBeVisible();
     await chart.scrollIntoViewIfNeeded();
     await expect.poll(async () => (await chartSnapshot(page)).settled).toBe(true);
     const snapshot = await chartSnapshot(page);
     const windPoints = snapshot.datasets[0].points;
     expect(windPoints).toHaveLength(30);
     expect(snapshot.datasets[1].points).toHaveLength(30);
-    await expect(page.getByRole("combobox", { name: "History sample" }).locator("option")).toHaveCount(31);
+    await expect(page.getByRole("combobox", { name: "History sample" })).toHaveCount(0);
     const spacing = windPoints[1].x - windPoints[0].x;
     for (const point of windPoints) {
       expect(point.marker).toBe("canvas");
@@ -232,40 +260,150 @@ for (const pathname of ["/gusts", "/loadingarea"]) {
     await testInfo.attach("30-minute direction layout", { path: screenshotPath, contentType: "image/png" });
     expect(state.forbiddenRequests).toEqual([]);
   });
+
+  test(`${pathname} requires two-dimensional marker proximity and dismisses distant or outside input`, async ({ page, isMobile }) => {
+    const state = await isolateWeather(page);
+    await page.goto(pathname);
+    await chartCanvas(page).scrollIntoViewIfNeeded();
+    const snapshot = await chartSnapshot(page);
+    const wind = snapshot.datasets[0].points[2];
+    const gust = snapshot.datasets[1].points[2];
+
+    // The 24px radius uses CSS pixels even on high-DPI phones. Select by
+    // proximity below a wind marker, then reject a point just beyond it.
+    await pointInput(page, isMobile, { x: wind.x, y: wind.y + 23 });
+    await expectSample(page, 2, "Wind from 270° (W)");
+    await pointInput(page, isMobile, { x: wind.x, y: wind.y + 26 });
+    await expectClosed(page);
+    await pointInput(page, isMobile, { x: wind.x, y: wind.y });
+    await expectSample(page, 2, "Wind from 270° (W)");
+    await pointInput(page, isMobile, { x: wind.x + 18, y: wind.y + 18 });
+    await expectClosed(page);
+
+    // Gust markers select the same timestamp's complete data too.
+    await pointInput(page, isMobile, { x: gust.x, y: gust.y });
+    await expectSample(page, 2, "Wind from 270° (W)");
+    await pointInput(page, isMobile, { x: wind.x, y: snapshot.area.top + 2 });
+    await expectClosed(page);
+
+    // Same-axis index selection must not turn any empty chart space into a hit.
+    await pointInput(page, isMobile, { x: wind.x, y: wind.y });
+    await expectSample(page, 2, "Wind from 270° (W)");
+    const legend = page.getByText(LEGEND, { exact: true });
+    if (isMobile) await legend.tap();
+    else await legend.click();
+    await expectClosed(page);
+
+    // Calm/zero readings stay real points, including their clipped circles.
+    const calm = snapshot.datasets[0].points[3];
+    await pointInput(page, isMobile, { x: calm.x, y: calm.y - 2 });
+    await expectSample(page, 3, "Calm — direction unavailable");
+    expect(state.forbiddenRequests).toEqual([]);
+  });
+
+  test(`${pathname} supports keyboard samples, Escape, and mouse departure without persistent details`, async ({ page, isMobile }) => {
+    const state = await isolateWeather(page);
+    await page.goto(pathname);
+    const canvas = chartCanvas(page);
+    await canvas.scrollIntoViewIfNeeded();
+    await expect(canvas).toHaveAttribute("tabindex", "0");
+    await canvas.focus();
+    await canvas.press("ArrowLeft");
+    await expectSample(page, 6, "Wind from 180° (S)");
+    await canvas.press("ArrowLeft");
+    await expectSample(page, 5, "Direction unavailable");
+    await canvas.press("ArrowRight");
+    await expectSample(page, 6, "Wind from 180° (S)");
+    await canvas.press("Escape");
+    await expectClosed(page);
+
+    if (!isMobile) {
+      const point = (await chartSnapshot(page)).datasets[0].points[2];
+      await canvas.hover({ position: { x: point.x, y: point.y } });
+      await expectSample(page, 2, "Wind from 270° (W)");
+      await canvas.hover({ position: { x: point.x, y: 12 } });
+      await expectClosed(page);
+      await canvas.hover({ position: { x: point.x, y: point.y } });
+      await expectSample(page, 2, "Wind from 270° (W)");
+      await page.getByText(LEGEND, { exact: true }).hover();
+      await expectClosed(page);
+    }
+    expect(state.forbiddenRequests).toEqual([]);
+  });
+
+  test(`${pathname} never reopens a dismissed popup when history polls or rolls forward`, async ({ page, isMobile }) => {
+    const state = await isolateWeather(page);
+    await page.goto(pathname);
+    await chartCanvas(page).scrollIntoViewIfNeeded();
+    const point = (await chartSnapshot(page)).datasets[0].points[2];
+    await pointInput(page, isMobile, { x: point.x, y: point.y });
+    await expectSample(page, 2, "Wind from 270° (W)");
+    await page.keyboard.press("Escape");
+    await expectClosed(page);
+
+    state.history = [...state.history.slice(1), {
+      id: 8, unique_id: "direction-test-new",
+      received_time: new Date().toISOString(),
+      direction: "315", wind_speed: "15", gust_speed: "20",
+    }];
+    await refreshHistory(page, state);
+    await expect.poll(async () => (await chartSnapshot(page)).datasets[0].values.at(-1)).toBe(15);
+    await expectClosed(page);
+    state.history = state.history.filter(({ direction }) => direction !== "270");
+    await refreshHistory(page, state);
+    await expect.poll(async () => (await chartSnapshot(page)).datasets[0].points.length).toBe(state.history.length);
+    await expectClosed(page);
+
+    const latest = (await chartSnapshot(page)).datasets[0].points.at(-1);
+    await pointInput(page, isMobile, { x: latest.x, y: latest.y });
+    await expectSample(page, state.history.length - 1, "Wind from 315° (NW)");
+    expect(state.forbiddenRequests).toEqual([]);
+  });
+
+  test(`${pathname} does not select a sample while a touch gesture scrolls across markers`, async ({ page, isMobile, browserName }) => {
+    test.skip(!isMobile, "Touch scrolling is covered on the phone projects");
+    const state = await isolateWeather(page);
+    await page.goto(pathname);
+    const canvas = chartCanvas(page);
+    await canvas.scrollIntoViewIfNeeded();
+    const point = (await chartSnapshot(page)).datasets[0].points[2];
+    if (browserName === "chromium") {
+      // Actual native touchscreen input covers compatibility-click suppression.
+      const bounds = await canvas.boundingBox();
+      const session = await page.context().newCDPSession(page);
+      const x = bounds.x + point.x;
+      const y = bounds.y + point.y;
+      await session.send("Input.dispatchTouchEvent", {
+        type: "touchStart", touchPoints: [{ x, y }],
+      });
+      await session.send("Input.dispatchTouchEvent", {
+        type: "touchMove", touchPoints: [{ x, y: y - 60 }],
+      });
+      await session.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+      await session.detach();
+    } else {
+      // WebKit has no CDP gesture API. Exercise the same DOM pointer lifecycle
+      // and a subsequent compatibility click without preventing native scrolling.
+      const prevented = await canvas.evaluate((element, position) => {
+        const box = element.getBoundingClientRect();
+        const options = { bubbles: true, cancelable: true, pointerType: "touch", pointerId: 1, isPrimary: true,
+          clientX: box.left + position.x, clientY: box.top + position.y };
+        const down = new PointerEvent("pointerdown", options);
+        element.dispatchEvent(down);
+        const move = new PointerEvent("pointermove", { ...options, clientY: options.clientY - 60 });
+        element.dispatchEvent(move);
+        element.dispatchEvent(new PointerEvent("pointerup", { ...options, clientY: options.clientY - 60 }));
+        element.dispatchEvent(new MouseEvent("click", options));
+        return down.defaultPrevented || move.defaultPrevented;
+      }, point);
+      expect(prevented).toBe(false);
+    }
+    await expectClosed(page);
+    // A genuine tap after a completed scroll must still open normally.
+    await canvas.scrollIntoViewIfNeeded();
+    const currentPoint = (await chartSnapshot(page)).datasets[0].points[2];
+    await canvas.tap({ position: { x: currentPoint.x, y: currentPoint.y } });
+    await expectSample(page, 2, "Wind from 270° (W)");
+    expect(state.forbiddenRequests).toEqual([]);
+  });
 }
-
-test("selection follows the latest reading until pinned and survives rolling history refresh", async ({ page }) => {
-  const state = await isolateWeather(page);
-  await page.goto("/gusts");
-  const selector = page.getByRole("combobox", { name: "History sample" });
-  await expect(sampleDetails(page)).toContainText("Wind from 180° (S)");
-
-  const refresh = async () => {
-    const before = state.gustRequests;
-    await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true })));
-    await expect.poll(() => state.gustRequests).toBeGreaterThan(before);
-  };
-  state.history = [...state.history, {
-    id: 8, unique_id: "direction-test-new",
-    received_time: new Date().toISOString(),
-    direction: "315", wind_speed: "15", gust_speed: "20",
-  }];
-  await refresh();
-  await expect(sampleDetails(page)).toContainText("Wind from 315° (NW)");
-
-  // The first option follows latest; the fourth option is the original west sample.
-  await selector.selectOption({ index: 3 });
-  await expect(sampleDetails(page)).toContainText("Wind from 270° (W)");
-  const selectedValue = await selector.inputValue();
-  state.history = state.history.slice(1);
-  await refresh();
-  await expect(selector).toHaveValue(selectedValue);
-  await expect(sampleDetails(page)).toContainText("Wind from 270° (W)");
-  await expect(sampleDetails(page)).toContainText("Wind speed: 12 kts");
-
-  state.history = state.history.filter(({ direction }) => direction !== "270");
-  await refresh();
-  await expect(selector).toHaveValue("");
-  await expect(sampleDetails(page)).toContainText("Wind from 315° (NW)");
-  expect(state.forbiddenRequests).toEqual([]);
-});

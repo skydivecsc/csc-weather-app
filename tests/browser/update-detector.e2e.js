@@ -165,11 +165,13 @@ test("the loading-area kiosk automatically reloads only once", async ({
 
   await page.goto("/loadingarea");
 
-  await expect
-    .poll(() =>
-      page.evaluate((key) => sessionStorage.getItem(key), KIOSK_RELOAD_STORAGE_KEY)
-    )
-    .toBe(REMOTE_BUILD_ID);
+  // The expected reload can destroy the execution context while storage is
+  // being read. Retry that read as well as the exact release-key assertion.
+  await expect(async () => {
+    expect(await page.evaluate(
+      (key) => sessionStorage.getItem(key), KIOSK_RELOAD_STORAGE_KEY
+    )).toBe(REMOTE_BUILD_ID);
+  }).toPass({ timeout: 5000 });
   await expect.poll(() => navigationCount).toBe(2);
 
   await page.waitForTimeout(1000);
@@ -204,14 +206,11 @@ test("a backend-only release reloads the kiosk once per paired release", async (
 
   await page.goto("/loadingarea");
 
-  await expect
-    .poll(() =>
-      page.evaluate(
-        (key) => sessionStorage.getItem(key),
-        KIOSK_RELOAD_STORAGE_KEY
-      )
-    )
-    .toBe(releaseKey);
+  await expect(async () => {
+    expect(await page.evaluate(
+      (key) => sessionStorage.getItem(key), KIOSK_RELOAD_STORAGE_KEY
+    )).toBe(releaseKey);
+  }).toPass({ timeout: 5000 });
   await expect.poll(() => navigationCount).toBe(2);
 
   await page.waitForTimeout(1000);

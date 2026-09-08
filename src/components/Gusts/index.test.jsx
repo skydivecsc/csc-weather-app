@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { WeatherContext } from "../../context/WeatherContextValue";
 import GustChart from ".";
@@ -59,31 +59,47 @@ describe("historical wind chart", () => {
     expect(options.plugins.tooltip.callbacks.title([{ dataIndex: 0 }])).toBe("1:01 PM Chicago time");
   });
 
-  it("keeps selected timestamp across shifted history and returns to latest when it expires", () => {
-    const { rerender } = render(view([row(1, 90), row(2, 270)]));
-    const select = screen.getByLabelText("History sample");
-    const details = screen.getByRole("status", { name: "Selected wind sample" });
-    fireEvent.change(select, { target: { value: `2:${row(2, 270).received_time}` } });
-    rerender(view([row(2, 270), row(3, 180)]));
-    expect(details).toHaveTextContent("Wind from 270° (W)");
-    rerender(view([row(3, 180), row(4, 360)]));
-    expect(select).toHaveValue("");
-    expect(details).toHaveTextContent("Wind from 360° (N)");
+  it("removes below-chart controls and details while retaining accessible chart instructions", () => {
+    render(view([row(1, 90)]));
+    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Selected wind sample")).not.toBeInTheDocument();
+    expect(screen.getByRole("status", { name: "Active wind sample" })).toBeEmptyDOMElement();
+    expect(chart.props.tabIndex).toBe(0);
+    expect(chart.props.options.events).toEqual([]);
+    expect(chart.props.fallbackContent).not.toContain("History sample selector");
+    expect(screen.getByText(/Use Left and Right arrow keys/)).toHaveClass("gust-chart-sr-only");
   });
 
-  it("follows newest history by default and supports a keyboard-accessible selector", () => {
-    const { rerender } = render(view([row(1, 90)]));
-    rerender(view([row(1, 90), row(2, 270)]));
-    expect(screen.getByRole("status", { name: "Selected wind sample" })).toHaveTextContent("Wind from 270° (W)");
-    fireEvent.change(screen.getByLabelText("History sample"), { target: { value: `1:${row(1, 90).received_time}` } });
-    expect(screen.getByRole("status", { name: "Selected wind sample" })).toHaveTextContent("Wind from 90° (E)");
+  it("initializes a chart attached after the samples effect and cleans up on detach", () => {
+    render(view([row(1, 90), row(2, 270)]));
+    const canvas = document.createElement("canvas");
+    document.body.append(canvas);
+    let active = [];
+    const instance = {
+      canvas, isDatasetVisible: () => true,
+      getDatasetMeta: () => ({ data: [{ x: 10, y: 20 }, { x: 30, y: 40 }] }),
+      getActiveElements: () => active,
+      setActiveElements: (elements) => { active = elements; },
+      tooltip: { getActiveElements: () => active, setActiveElements: vi.fn() },
+      update: vi.fn(),
+    };
+    const attach = chart.props.ref;
+    attach(instance);
+    canvas.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }));
+    const status = screen.getByRole("status", { name: "Active wind sample" });
+    expect(status).toHaveTextContent("Wind from 270° (W)");
+    attach(null);
+    canvas.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+    expect(status).toBeEmptyDOMElement();
+    canvas.remove();
   });
 
   it("uses selected units and Chicago 24-hour time", () => {
     render(view([row(1, 270)], { speedUnit: "false", timeFormat: "false", darkTheme: "false" }));
     expect(chart.props.data.datasets[0].data).toEqual([12]);
     expect(chart.props.data.datasets[1].data).toEqual([16]);
-    expect(screen.getByRole("status", { name: "Selected wind sample" })).toHaveTextContent("13:01 Chicago timeWind speed: 12 mphGust speed: 16 mphWind from 270° (W)");
+    expect(chart.props.options.plugins.tooltip.callbacks.title([{ dataIndex: 0 }])).toBe("13:01 Chicago time");
+    expect(chart.props.options.plugins.tooltip.callbacks.label({ dataset: chart.props.data.datasets[0], formattedValue: "12" })).toBe("Wind Speed: 12 mph");
   });
 
   it("uses arrows and fixed knots on loadingarea despite an mph preference", () => {
@@ -91,7 +107,7 @@ describe("historical wind chart", () => {
     render(view([row(1, 270)], { speedUnit: "false" }));
     expect(chart.props.data.datasets[0].pointStyle({ dataIndex: 0, chart: { width: 300 } })).toBe("test-arrow");
     expect(chart.props.data.datasets[0].data).toEqual([10]);
-    expect(screen.getByRole("status", { name: "Selected wind sample" })).toHaveTextContent("Wind speed: 10 kts");
+    expect(chart.props.options.plugins.tooltip.callbacks.label({ dataset: chart.props.data.datasets[0], formattedValue: "10" })).toBe("Wind Speed: 10 kts");
   });
 
   it("preserves loading and unavailable states", () => {

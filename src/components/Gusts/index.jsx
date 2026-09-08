@@ -1,21 +1,27 @@
 import "chart.js/auto";
 import { Line } from "react-chartjs-2";
-import { useCallback, useContext, useId, useMemo, useState } from "react";
+import { useCallback, useContext, useEffect, useId, useMemo, useRef } from "react";
 import { WeatherContext } from "../../context/WeatherContextValue";
 import LoadingDots from "../LoadingDots";
 import { directionLabel, flowRotation, recordedDirection, windArrowMarker } from "./direction";
+import { attachHistoryInteraction } from "./interaction";
 import "./gusts.css";
-
-const sampleKey = (row) => `${row.id ?? ""}:${row.received_time}`;
 
 function GustChart() {
   const { gustData, darkTheme, speedUnit, timeFormat } = useContext(WeatherContext);
   const isLoadingArea = window.location.pathname === "/loadingarea";
   const useKnots = isLoadingArea || speedUnit === "true";
   const unit = useKnots ? "kts" : "mph";
-  const [selectedKey, setSelectedKey] = useState("");
-  const selectorId = useId();
+  const interaction = useRef(null);
+  const latestSamples = useRef([]);
+  const announcement = useRef(null);
+  const instructionsId = useId();
   const legendId = useId();
+  const attachChart = useCallback((chart) => {
+    interaction.current?.destroy();
+    interaction.current = chart ? attachHistoryInteraction(chart, announcement.current) : null;
+    interaction.current?.setSamples(latestSamples.current);
+  }, []);
   const samples = useMemo(() => {
     const format = new Intl.DateTimeFormat("en-US", {
       timeZone: "America/Chicago",
@@ -25,18 +31,16 @@ function GustChart() {
     });
     return gustData.filter((row) => !row.error).map((row) => ({
       ...row,
-      key: sampleKey(row),
+      unit,
       time: format.format(new Date(row.received_time)),
       wind: useKnots ? row.wind_speed : Math.round(row.wind_speed * 1.151),
       gust: useKnots ? row.gust_speed : Math.round(row.gust_speed * 1.151),
       directionText: directionLabel(row),
     }));
-  }, [gustData, timeFormat, useKnots]);
-  const selected = samples.find((row) => row.key === selectedKey) ?? samples.at(-1);
-  const selectSample = useCallback((_event, elements) => {
-    if (elements.length && samples[elements[0].index]) {
-      setSelectedKey(samples[elements[0].index].key);
-    }
+  }, [gustData, timeFormat, useKnots, unit]);
+  useEffect(() => {
+    latestSamples.current = samples;
+    interaction.current?.setSamples(samples);
   }, [samples]);
 
   const data = useMemo(() => {
@@ -85,9 +89,8 @@ function GustChart() {
     // Do not tween headings through invented intermediate directions.
     animation: false,
     layout: { padding: 10 },
-    interaction: { mode: "index", axis: "x", intersect: false },
-    onHover: selectSample,
-    onClick: selectSample,
+    // Native pointer/keyboard input is handled with a two-dimensional hit test.
+    events: [],
     plugins: {
       title: {
         display: true,
@@ -114,7 +117,7 @@ function GustChart() {
       },
       x: { grid: { color: "#000" }, ticks: { color: darkTheme === "true" ? "rgb(8, 228, 209)" : "#000", maxRotation: 45 } },
     },
-  }), [darkTheme, isLoadingArea, samples, selectSample, unit]);
+  }), [darkTheme, isLoadingArea, samples, unit]);
 
   if (!gustData.length) {
     return <div className="loading">Live Gusts Loading<LoadingDots /></div>;
@@ -128,34 +131,23 @@ function GustChart() {
     >
       <div className="gust-chart-frame">
         <Line
+          ref={attachChart}
           className="chart"
           data={data}
           options={options}
           aria-label="Wind and gust speed history with wind direction arrows"
-          aria-describedby={legendId}
-          fallbackContent="Use the History sample selector below for wind speed, gust speed, and direction."
+          tabIndex={0}
+          aria-describedby={`${legendId} ${instructionsId}`}
+          fallbackContent="Wind and gust speed history. Focus the chart and use Left and Right arrow keys to hear individual samples."
         />
       </div>
       <p className="gust-direction-legend" id={legendId}>
         Arrows show wind flow; direction labels show wind FROM.
       </p>
-      <div className="gust-sample-controls">
-        <label htmlFor={selectorId}>History sample</label>
-        <select
-          id={selectorId}
-          value={samples.some((row) => row.key === selectedKey) ? selectedKey : ""}
-          onChange={(event) => setSelectedKey(event.target.value)}
-        >
-          <option value="">Latest sample</option>
-          {samples.map((row) => <option key={row.key} value={row.key}>{row.time}</option>)}
-        </select>
-      </div>
-      <div className="gust-sample-details" role="status" aria-label="Selected wind sample" aria-atomic="true">
-        <span>{selected.time} Chicago time</span>
-        <span>Wind speed: {selected.wind} {unit}</span>
-        <span>Gust speed: {selected.gust} {unit}</span>
-        <span>{selected.directionText}</span>
-      </div>
+      <span className="gust-chart-sr-only" id={instructionsId}>
+        Use Left and Right arrow keys to inspect samples. Press Escape to dismiss details.
+      </span>
+      <div ref={announcement} className="gust-chart-sr-only" role="status" aria-label="Active wind sample" aria-atomic="true" />
     </div>
   );
 }
