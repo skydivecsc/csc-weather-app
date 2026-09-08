@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 const API_ORIGIN = "https://login.cscwx2.com";
-const LEGEND = "Arrows show flow; degrees show wind FROM.";
+const LEGEND = "Arrows show wind flow.";
 const aloftMap = (value) =>
   Object.fromEntries(
     Array.from({ length: 18 }, (_, index) => [`${(index + 1) * 1000}`, value])
@@ -190,8 +190,9 @@ for (const pathname of ["/gusts", "/loadingarea"]) {
     expect(gust.label).toBe("Gust Speed");
     expect(wind.points.every(({ marker }) => marker === "circle")).toBe(true);
     expect(snapshot.strip.points.map(({ rotation }) => rotation)).toEqual([180, 270, 90, null, null, null, 0]);
-    expect(snapshot.strip.top).toBeGreaterThan(snapshot.axisBottom);
-    expect(snapshot.strip.bottom).toBeLessThan(snapshot.height);
+    expect(snapshot.strip.top).toBeGreaterThan(snapshot.area.bottom);
+    expect(snapshot.strip.bottom).toBeLessThan(snapshot.axisBottom);
+    expect(snapshot.strip.labels).toBeUndefined();
     snapshot.strip.points.forEach((point, index) => expect(point.x).toBeCloseTo(wind.points[index].x, 3));
     expect(gust.points.every(({ marker }) => marker === "circle")).toBe(true);
 
@@ -258,12 +259,9 @@ for (const pathname of ["/gusts", "/loadingarea"]) {
       expect(point.size).toBeLessThanOrEqual(spacing);
       expect(point.x).toBeCloseTo(windPoints[point.index].x, 3);
     }
-    expect(snapshot.strip.labels.length).toBeGreaterThan(1);
-    if (isMobile) expect(snapshot.strip.labels.length).toBeLessThan(30);
-    snapshot.strip.labels.forEach((label, index) => {
-      expect(label.text).toBe(`${state.history[label.index].direction}°`);
-      if (index) expect(label.left).toBeGreaterThanOrEqual(snapshot.strip.labels[index - 1].right + 8);
-    });
+    expect(snapshot.strip.labels).toBeUndefined();
+    expect(snapshot.strip.top).toBeGreaterThan(snapshot.area.bottom);
+    expect(snapshot.strip.bottom).toBeLessThan(snapshot.axisBottom);
     const box = await chart.boundingBox();
     expect(box.x).toBeGreaterThanOrEqual(0);
     expect(box.x + box.width).toBeLessThanOrEqual(page.viewportSize().width);

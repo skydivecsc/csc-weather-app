@@ -89,7 +89,7 @@ function GustChart() {
     maintainAspectRatio: false,
     // Do not tween headings through invented intermediate directions.
     animation: false,
-    layout: { padding: { top: 10, left: 10, right: 10, bottom: 56 } },
+    layout: { padding: 10 },
     // Native pointer/keyboard input is handled with a two-dimensional hit test.
     events: [],
     plugins: {
@@ -121,7 +121,8 @@ function GustChart() {
         ticks: { color: darkTheme === "true" ? "rgb(8, 228, 209)" : "#000" },
         grid: { color: darkTheme === "true" ? "rgb(8, 228, 209)" : "#000" },
       },
-      x: { grid: { color: "#000" }, ticks: { color: darkTheme === "true" ? "rgb(8, 228, 209)" : "#000", maxRotation: 45 } },
+      // Reserve the band between the plotted baseline and time labels for arrows.
+      x: { grid: { color: "#000" }, ticks: { padding: 28, color: darkTheme === "true" ? "rgb(8, 228, 209)" : "#000", maxRotation: 45 } },
     },
   }), [darkTheme, isLoadingArea, samples, unit]);
 
@@ -149,7 +150,7 @@ function GustChart() {
         />
       </div>
       <p className="gust-direction-legend" id={legendId}>
-        Arrows show flow; degrees show wind FROM.
+        Arrows show wind flow.
       </p>
       <span className="gust-chart-sr-only" id={instructionsId}>
         Use Left and Right arrow keys to inspect samples. Press Escape to dismiss details.

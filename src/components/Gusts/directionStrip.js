@@ -14,7 +14,7 @@ Tooltip.positioners.cscwxHistory = function (_elements, position) {
 export function stripLayout(chart) {
   const directions = chart.data.datasets[0].historyDirections ?? [];
   const scale = chart.scales.x;
-  const top = scale.bottom + 4;
+  const top = chart.chartArea.bottom + 4;
   const spacing = directions.length > 1
     ? Math.abs(scale.getPixelForValue(1) - scale.getPixelForValue(0)) : 18;
   const size = Math.max(4, Math.min(18, Math.floor(spacing * 0.8)));
@@ -22,29 +22,13 @@ export function stripLayout(chart) {
     x: scale.getPixelForValue(index), y: top + 12, index, direction, size,
     rotation: direction === null ? null : flowRotation(direction),
   }));
-  const labels = [];
-  let previousRight = -Infinity;
-  for (const tick of scale.ticks) {
-    const point = points[tick.value];
-    if (!point || point.direction === null) continue;
-    const text = `${point.direction}°`;
-    const width = chart.ctx.measureText(text).width;
-    const left = point.x - width / 2;
-    const right = point.x + width / 2;
-    if (left < 4 || right > chart.width - 4 || left < previousRight + 8) continue;
-    labels.push({ index: point.index, text, x: point.x, y: top + 37, left, right });
-    previousRight = right;
-  }
-  return { top, bottom: top + 46, points, labels };
+  return { top, bottom: top + 24, points };
 }
 
 export const directionStrip = {
   id: "directionStrip",
   afterLayout(chart) {
-    chart.ctx.save();
-    chart.ctx.font = "11px sans-serif";
     chart.$directionStrip = stripLayout(chart);
-    chart.ctx.restore();
   },
   afterDatasetsDraw(chart, _args, options) {
     const strip = chart.$directionStrip;
@@ -69,7 +53,6 @@ export const directionStrip = {
         ctx.restore();
       }
     }
-    for (const label of strip.labels) ctx.fillText(label.text, label.x, label.y);
     ctx.restore();
   },
   afterDestroy(chart) {

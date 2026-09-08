@@ -103,9 +103,9 @@ Home Page displays the current up-to-the-second real-time wind speed and gust as
 
 The Gusts Chart displays live wind data for the previous 30 minutes in kts or mph depending on your setting. The teal portion represents wind speed and the red portion represents max gust. This information is crucial for safety planning.
 
-On `/gusts` and `/loadingarea`, a separate strip below the time axis shows
-wind-flow arrows aligned with each sample. Degree labels show wind **FROM**
-at visible time ticks, thinning to avoid overlap on narrow screens. Speed and
+On `/gusts` and `/loadingarea`, a compact strip between the plotted baseline
+and the time labels shows wind-flow arrows aligned with each sample, without
+degree labels. Exact wind **FROM** directions remain in the popup. Speed and
 gust markers remain circles. Hover or tap within 24 CSS pixels
 of a plotted marker or strip arrow to read that timestamp's speeds and **Wind from**
 heading (degrees and compass direction) in the floating popup. Clicking or

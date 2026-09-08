@@ -53,7 +53,8 @@ describe("historical wind chart", () => {
     expect(data.datasets[0].pointStyle).toBe("circle");
     expect(data.datasets[0].historyDirections).toEqual([270, 360, null]);
     expect(chart.props.plugins[0].id).toBe("directionStrip");
-    expect(options.layout.padding.bottom).toBe(56);
+    expect(options.layout.padding).toBe(10);
+    expect(options.scales.x.ticks.padding).toBe(28);
     expect(data.datasets[1].pointStyle).toBe("circle");
     expect(options.plugins.tooltip.callbacks.afterBody([{ dataIndex: 0 }])).toBe("Wind from 270° (W)");
     expect(options.plugins.tooltip.callbacks.afterBody([{ dataIndex: 1 }])).toBe("Wind from 360° (N)");
