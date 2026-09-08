@@ -90,7 +90,12 @@ const isolateWeather = async (page, { darkTheme = "true", speedUnit = "true" } =
 
 // Inspect the existing Chart.js instance to locate painted points for real
 // pointer/touch input; no test-only application globals are needed.
-const chartSnapshot = (page) => page.evaluate(async () => {
+const chartSnapshot = async (page) => {
+  let snapshot;
+  // A visible canvas can precede Chart.js attachment (especially in WebKit
+  // and during StrictMode recreation). Await the real initialized instance.
+  await expect(async () => {
+    snapshot = await page.evaluate(async () => {
   const moduleUrl = performance.getEntriesByType("resource")
     .find(({ name }) => /\/chart__js_auto\.js(?:\?|$)/.test(name))?.name;
   if (!moduleUrl) throw new Error("The chart.js/auto module has not loaded");
@@ -132,7 +137,10 @@ const chartSnapshot = (page) => page.evaluate(async () => {
       }),
     })),
   };
-});
+    });
+  }).toPass({ timeout: 5000 });
+  return snapshot;
+};
 
 const sampleDetails = (page) => page.getByRole("status", { name: "Active wind sample" });
 const chartCanvas = (page) => page.locator(".gust-chart canvas");
