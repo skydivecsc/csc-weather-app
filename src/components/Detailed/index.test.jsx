@@ -57,6 +57,18 @@ const renderDetailed = (overrides = {}) =>
   );
 
 describe("Detailed wind safety presentation", () => {
+  it("does not describe unavailable weather as field-level density altitude or no weather", () => {
+    renderDetailed({
+      weatherStatus: { error: "Invalid weather report", state: "unavailable" },
+      skyCondition1: "Unknown",
+      metarAbbr: "Unknown",
+    });
+    expect(screen.getByText("Density Altitude:").closest("tr")).toHaveTextContent("Unknown");
+    expect(screen.getByText("Present Weather:").closest("tr")).toHaveTextContent("Unknown");
+    expect(screen.queryByText("Field Level")).not.toBeInTheDocument();
+    expect(screen.queryByText("Clear Sky")).not.toBeInTheDocument();
+  });
+
   it("mutes aged wind rows and suppresses favorable conclusions", () => {
     renderDetailed();
 
