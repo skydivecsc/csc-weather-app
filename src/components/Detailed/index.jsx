@@ -26,6 +26,7 @@ function DetailedPage() {
     sunrise24,
     twilight24,
     astronomyStatus,
+    weatherStatus,
     skyCondition1,
     skyCondition2,
     skyCondition3,
@@ -320,7 +321,9 @@ function DetailedPage() {
           <tr className={darkTheme === "true" ? "table" : "table-light"}>
             <td>Density Altitude:</td>
             <td>
-              {densityAlt && unitSetting === "true"
+              {weatherStatus?.error
+                ? "Unknown"
+                : densityAlt && unitSetting === "true"
                 ? densityAlt + "'"
                 : !densityAlt
                 ? "Field Level"

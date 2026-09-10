@@ -40,6 +40,9 @@ function SocketProbe() {
     gustHistoryStatus,
     isAwosLive,
     speed,
+    skyCondition1,
+    cloudCeiling1,
+    temp,
     weatherStatus,
     windSource,
     windStatus,
@@ -49,6 +52,10 @@ function SocketProbe() {
       <div data-testid="socket-status">{isAwosLive ? "LIVE" : "DOWN"}</div>
       <div data-testid="socket-speed">{speed}</div>
       <div data-testid="weather-status">{weatherStatus.state}</div>
+      <div data-testid="weather-current">{String(weatherStatus.isCurrent)}</div>
+      <div data-testid="weather-time">{weatherStatus.measuredAt}</div>
+      <div data-testid="sky">{skyCondition1} {cloudCeiling1}</div>
+      <div data-testid="temperature">{temp ?? "Unknown"}</div>
       <div data-testid="wind-source">{windSource}</div>
       <div data-testid="wind-state">{windStatus}</div>
       <div data-testid="gust-history-state">{gustHistoryStatus.state}</div>
@@ -97,7 +104,7 @@ const sendWind = (socket, speed = 12) =>
     variableDirection: [170, 190],
   });
 
-const sendWeather = (socket, temperature = 70) => {
+const sendWeather = (socket, temperature = 70, overrides = {}) => {
   act(() =>
     socket.onmessage({
       data: JSON.stringify({
@@ -110,6 +117,7 @@ const sendWeather = (socket, temperature = 70) => {
               presentWeather: null,
               skyCondition: [{ altitude: null, cloudCover: "CLR" }],
               temperature,
+              ...overrides,
             },
           },
         },
@@ -477,7 +485,7 @@ describe("WeatherProvider WebSocket lifecycle", () => {
     unmount();
   });
 
-  it("rejects empty wind, malformed weather, and GraphQL errors", async () => {
+  it("rejects empty wind and wind GraphQL errors without discarding the last wind", async () => {
     const { unmount } = renderProvider();
     const firstSocket = socketInstances[0];
     openAndAcknowledge(firstSocket);
@@ -504,37 +512,10 @@ describe("WeatherProvider WebSocket lifecycle", () => {
     expect(screen.getByTestId("socket-status")).toHaveTextContent("DOWN");
     expect(screen.getByTestId("weather-status")).toHaveTextContent("live");
 
-    const weatherHandler = secondSocket.onmessage;
-    expect(() =>
-      act(() =>
-        weatherHandler({
-          data: JSON.stringify({
-            id: "weather",
-            payload: {
-              data: {
-                  weather: {
-                  receivedAt: new Date(Date.now()).toISOString(),
-                  metar: "KAAA 010000Z CLR 70 50 A3000",
-                  presentWeather: {},
-                  skyCondition: [{ altitude: null, cloudCover: "CLR" }],
-                  temperature: 70,
-                },
-              },
-            },
-            type: "data",
-          }),
-        })
-      )
-    ).not.toThrow();
-    expect(screen.getByTestId("socket-status")).toHaveTextContent("DOWN");
-
-    await act(() => vi.advanceTimersByTimeAsync(2000));
-    const thirdSocket = socketInstances[2];
-    openAndAcknowledge(thirdSocket);
-    sendWind(thirdSocket, 14);
+    sendWind(secondSocket, 14);
     expect(screen.getByTestId("socket-status")).toHaveTextContent("LIVE");
 
-    const errorHandler = thirdSocket.onmessage;
+    const errorHandler = secondSocket.onmessage;
     act(() =>
       errorHandler({
         data: JSON.stringify({
@@ -556,6 +537,164 @@ describe("WeatherProvider WebSocket lifecycle", () => {
     );
     expect(screen.getByTestId("socket-status")).toHaveTextContent("DOWN");
     expect(screen.getByTestId("socket-speed")).toHaveTextContent("14");
+    unmount();
+  });
+
+  it.each([
+    { skyCondition: [{ altitude: null, cloudCover: null }] },
+    { skyCondition: [{ altitude: null, cloudCover: "" }] },
+    { skyCondition: [] },
+    { presentWeather: {} },
+    { receivedAt: "invalid" },
+  ])("isolates invalid weather %j and recovers on the same wind socket", async (invalid) => {
+    const { unmount } = renderProvider();
+    const socket = socketInstances[0];
+    openAndAcknowledge(socket);
+    sendWind(socket);
+    sendWeather(socket);
+    const originalWeatherTime = screen.getByTestId("weather-time").textContent;
+    expect(screen.getByTestId("sky")).toHaveTextContent("Clear Sky");
+
+    await act(() => vi.advanceTimersByTimeAsync(5000));
+    sendWeather(socket, 70, invalid);
+    expect(screen.getByTestId("weather-status")).toHaveTextContent("unavailable");
+    expect(screen.getByTestId("weather-current")).toHaveTextContent("false");
+    expect(screen.getByTestId("weather-time")).toHaveTextContent(originalWeatherTime);
+    expect(screen.getByTestId("sky")).toHaveTextContent("Unknown");
+    expect(screen.getByTestId("temperature")).toHaveTextContent("Unknown");
+    expect(screen.getByTestId("socket-status")).toHaveTextContent("LIVE");
+    for (let step = 0; step < 4; step += 1) {
+      sendWind(socket);
+      await act(() => vi.advanceTimersByTimeAsync(5000));
+      sendWeather(socket, 70, invalid);
+    }
+    expect(socket.close).not.toHaveBeenCalled();
+    expect(socketInstances).toHaveLength(1);
+    expect(screen.getByTestId("socket-status")).toHaveTextContent("LIVE");
+
+    sendWeather(socket, 72);
+    expect(screen.getByTestId("weather-status")).toHaveTextContent("live");
+    expect(screen.getByTestId("weather-current")).toHaveTextContent("true");
+    expect(screen.getByTestId("sky")).toHaveTextContent("Clear Sky");
+    expect(screen.getByTestId("temperature")).toHaveTextContent("72");
+    expect(socketInstances).toHaveLength(1);
+    unmount();
+  });
+
+  it.each([
+    { type: "error", payload: { message: "weather unavailable" } },
+    { type: "complete" },
+    { type: "data", payload: { errors: [{ message: "weather unavailable" }] } },
+  ])("keeps weather-scoped $type failures from closing fresh wind", (frame) => {
+    const { unmount } = renderProvider();
+    const socket = socketInstances[0];
+    openAndAcknowledge(socket);
+    sendWind(socket);
+    act(() => socket.onmessage({ data: JSON.stringify({ id: "weather", ...frame }) }));
+    expect(screen.getByTestId("weather-status")).toHaveTextContent("unavailable");
+    expect(screen.getByTestId("sky")).toHaveTextContent("Unknown");
+    expect(screen.getByTestId("socket-status")).toHaveTextContent("LIVE");
+    expect(socket.close).not.toHaveBeenCalled();
+    unmount();
+    expect(socket.close).toHaveBeenCalledOnce();
+  });
+
+  it("does not postpone the wind deadline with invalid weather", async () => {
+    const { unmount } = renderProvider();
+    const socket = socketInstances[0];
+    openAndAcknowledge(socket);
+    sendWind(socket);
+    await act(() => vi.advanceTimersByTimeAsync(14000));
+    sendWeather(socket, 70, { skyCondition: [{ altitude: null, cloudCover: null }] });
+    await act(() => vi.advanceTimersByTimeAsync(1000));
+    expect(socket.close).toHaveBeenCalledOnce();
+    expect(screen.getByTestId("socket-status")).toHaveTextContent("DOWN");
+    expect(screen.getByTestId("safety-ready")).toHaveTextContent("incomplete");
+    unmount();
+  });
+
+  it("still disconnects for connection-level errors carrying a weather ID", () => {
+    const { unmount } = renderProvider();
+    const socket = socketInstances[0];
+    openAndAcknowledge(socket);
+    sendWind(socket);
+    act(() => socket.onmessage({ data: JSON.stringify({
+      id: "weather", type: "connection_error",
+    }) }));
+    expect(socket.close).toHaveBeenCalledOnce();
+    expect(screen.getByTestId("socket-status")).toHaveTextContent("DOWN");
+    unmount();
+  });
+
+  it("does not treat a pre-ack error as a recoverable weather subscription", () => {
+    const { unmount } = renderProvider();
+    const socket = socketInstances[0];
+    act(() => socket.onmessage({ data: JSON.stringify({
+      id: "weather", type: "error",
+    }) }));
+    expect(socket.close).toHaveBeenCalledOnce();
+    unmount();
+  });
+
+  it("coalesces weather-only retries, backs off, and recovers without touching wind", async () => {
+    const { unmount } = renderProvider();
+    const socket = socketInstances[0];
+    openAndAcknowledge(socket);
+    sendWind(socket);
+    sendWeather(socket);
+    const weatherStarts = () => socket.send.mock.calls.map(([raw]) => JSON.parse(raw))
+      .filter((frame) => frame.type === "start" && frame.id === "weather").length;
+    const completeWeather = () => act(() => socket.onmessage({
+      data: JSON.stringify({ id: "weather", type: "complete" }),
+    }));
+    expect(weatherStarts()).toBe(1);
+    completeWeather();
+    completeWeather();
+    await act(() => vi.advanceTimersByTimeAsync(999));
+    expect(weatherStarts()).toBe(1);
+    await act(() => vi.advanceTimersByTimeAsync(1));
+    expect(weatherStarts()).toBe(2);
+    completeWeather();
+    await act(() => vi.advanceTimersByTimeAsync(1999));
+    expect(weatherStarts()).toBe(2);
+    await act(() => vi.advanceTimersByTimeAsync(1));
+    expect(weatherStarts()).toBe(3);
+    sendWeather(socket);
+    expect(screen.getByTestId("weather-status")).toHaveTextContent("live");
+    completeWeather();
+    await act(() => vi.advanceTimersByTimeAsync(1000));
+    expect(weatherStarts()).toBe(4);
+    expect(socket.close).not.toHaveBeenCalled();
+    expect(socket.send.mock.calls.map(([raw]) => JSON.parse(raw))
+      .filter((frame) => frame.id === "wind")).toHaveLength(1);
+    completeWeather();
+    unmount();
+    await act(() => vi.advanceTimersByTimeAsync(30000));
+    expect(weatherStarts()).toBe(4);
+    expect(socketInstances).toHaveLength(1);
+  });
+
+  it("cancels a pending weather retry when the browser goes offline", async () => {
+    const { unmount } = renderProvider();
+    const socket = socketInstances[0];
+    openAndAcknowledge(socket);
+    sendWind(socket);
+    act(() => socket.onmessage({ data: JSON.stringify({ id: "weather", type: "error" }) }));
+    act(() => window.dispatchEvent(new Event("offline")));
+    await act(() => vi.advanceTimersByTimeAsync(30000));
+    expect(socket.send).toHaveBeenCalledTimes(3);
+    expect(socket.close).toHaveBeenCalledOnce();
+    expect(socketInstances).toHaveLength(1);
+    unmount();
+  });
+
+  it("does not infer clear sky just because a cloud altitude is missing", () => {
+    const { unmount } = renderProvider();
+    const socket = socketInstances[0];
+    openAndAcknowledge(socket);
+    sendWeather(socket, 70, { skyCondition: [{ altitude: null, cloudCover: "OVC" }] });
+    expect(screen.getByTestId("sky")).toHaveTextContent("Overcast");
+    expect(screen.getByTestId("sky")).not.toHaveTextContent("Clear Sky");
     unmount();
   });
 

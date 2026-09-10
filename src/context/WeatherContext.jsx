@@ -166,6 +166,7 @@ const isSkyCondition = (condition) =>
   condition &&
   typeof condition === "object" &&
   typeof condition.cloudCover === "string" &&
+  condition.cloudCover.trim().length > 0 &&
   isNullableFiniteNumber(condition.altitude);
 
 const isWeatherReport = (weather) =>
@@ -265,6 +266,7 @@ const WindSpeedProvider = ({ children }) => {
   const [statusClock, setStatusClock] = useState(() => Date.now());
   const [clientStatusClock, setClientStatusClock] = useState(() => Date.now());
   const [weatherMeasuredAt, setWeatherMeasuredAt] = useState(null);
+  const [weatherError, setWeatherError] = useState(null);
   const [historyLastSuccessAt, setHistoryLastSuccessAt] = useState(null);
   const [historyError, setHistoryError] = useState(null);
   const latestWebSocketWindAt = useRef(null);
@@ -398,9 +400,11 @@ const WindSpeedProvider = ({ children }) => {
   const weatherStatus = {
     ageLabel: weatherAge === null ? null : ageLabel(weatherAge),
     ageMs: weatherAge,
+    error: weatherError,
     hasSample: weatherMeasuredAt !== null,
     isCurrent:
       isOnline &&
+      weatherError === null &&
       weatherAge !== null &&
       weatherAge <= WEATHER_LIVE_MS,
     measuredAt: weatherMeasuredAt,
@@ -408,11 +412,13 @@ const WindSpeedProvider = ({ children }) => {
       ? weatherMeasuredAt === null
         ? "unavailable"
         : "offline"
-      : weatherMeasuredAt === null
-        ? "loading"
-        : weatherAge <= WEATHER_LIVE_MS
-          ? "live"
-          : "stale",
+      : weatherError !== null
+        ? "unavailable"
+        : weatherMeasuredAt === null
+          ? "loading"
+          : weatherAge <= WEATHER_LIVE_MS
+            ? "live"
+            : "stale",
   };
   const historyStatus = {
     ageLabel: restWindAge === null ? null : ageLabel(restWindAge),
@@ -726,12 +732,17 @@ const WindSpeedProvider = ({ children }) => {
     let retryTimer = null;
     let ackTimer = null;
     let dataTimer = null;
+    let weatherRetryTimer = null;
     let websocket = null;
     let online = typeof navigator === "undefined" || navigator.onLine !== false;
     let connect;
     const currentTime = () => Date.now() + serverClockOffset.current;
 
     const clearConnectionTimers = () => {
+      if (weatherRetryTimer) {
+        clearTimeout(weatherRetryTimer);
+        weatherRetryTimer = null;
+      }
       if (ackTimer) {
         clearTimeout(ackTimer);
         ackTimer = null;
@@ -800,7 +811,7 @@ const WindSpeedProvider = ({ children }) => {
       dataTimer = setTimeout(() => disconnect(target), remainingFreshTime);
     };
 
-    const sendSubscriptions = (target) => {
+    const sendWeatherSubscription = (target) => {
       target.send(
         JSON.stringify({
           type: "start",
@@ -808,6 +819,10 @@ const WindSpeedProvider = ({ children }) => {
           payload: { query: weatherQuery, variables: null },
         })
       );
+    };
+
+    const sendSubscriptions = (target) => {
+      sendWeatherSubscription(target);
       target.send(
         JSON.stringify({
           type: "start",
@@ -838,6 +853,29 @@ const WindSpeedProvider = ({ children }) => {
       setActiveSocketId(socketId);
       websocket = currentSocket;
       let subscriptionsStarted = false;
+      let weatherRetryDelay = INITIAL_SOCKET_RETRY_MS;
+      const retryWeatherSubscription = () => {
+        if (weatherRetryTimer) {
+          return;
+        }
+        const delay = Math.max(
+          1,
+          Math.floor(weatherRetryDelay * (0.8 + Math.random() * 0.2))
+        );
+        weatherRetryDelay = Math.min(weatherRetryDelay * 2, MAX_SOCKET_RETRY_MS);
+        weatherRetryTimer = setTimeout(() => {
+          weatherRetryTimer = null;
+          if (disposed || !online || websocket !== currentSocket) {
+            return;
+          }
+          try {
+            sendWeatherSubscription(currentSocket);
+          } catch {
+            // A send failure means the shared transport itself is unusable.
+            disconnect(currentSocket);
+          }
+        }, delay);
+      };
       ackTimer = setTimeout(
         () => disconnect(currentSocket),
         SOCKET_ACK_TIMEOUT_MS
@@ -888,6 +926,17 @@ const WindSpeedProvider = ({ children }) => {
         if (res?.type === "ka") {
           return;
         }
+        // WEATHER and WIND share a transport, not a validity clock. A failed
+        // weather subscription/report must not take healthy wind offline.
+        if (
+          subscriptionsStarted &&
+          res?.id === "weather" &&
+          (res.type === "error" || res.type === "complete")
+        ) {
+          setWeatherError("Weather subscription unavailable");
+          retryWeatherSubscription();
+          return;
+        }
         if (
           res?.type === "connection_error" ||
           res?.type === "error" ||
@@ -903,7 +952,11 @@ const WindSpeedProvider = ({ children }) => {
         }
 
         if (res.payload?.errors) {
-          disconnect(currentSocket);
+          if (res.id === "weather") {
+            setWeatherError("Weather report unavailable");
+          } else {
+            disconnect(currentSocket);
+          }
           return;
         }
 
@@ -949,7 +1002,7 @@ const WindSpeedProvider = ({ children }) => {
           const weather = res.payload.data.weather;
           const measuredAt = parseReceivedAt(weather.receivedAt, currentTime());
           if (measuredAt === null) {
-            disconnect(currentSocket);
+            setWeatherError("Invalid weather timestamp");
             return;
           }
           if (
@@ -959,6 +1012,12 @@ const WindSpeedProvider = ({ children }) => {
             return;
           }
           latestWeatherAt.current = measuredAt;
+          if (weatherRetryTimer) {
+            clearTimeout(weatherRetryTimer);
+            weatherRetryTimer = null;
+          }
+          weatherRetryDelay = INITIAL_SOCKET_RETRY_MS;
+          setWeatherError(null);
           setWeatherMeasuredAt(measuredAt);
           setStatusClock(currentTime());
 
@@ -1066,7 +1125,7 @@ const WindSpeedProvider = ({ children }) => {
         };
 
         setSkyCondition1(
-          skyConditions[weather?.skyCondition[0]?.cloudCover] || ""
+          skyConditions[weather?.skyCondition[0]?.cloudCover] || "Unknown"
         );
         setSkyCondition2(
           skyConditions[weather?.skyCondition[1]?.cloudCover] || ""
@@ -1076,8 +1135,7 @@ const WindSpeedProvider = ({ children }) => {
         );
 
         if (
-          (weather.skyCondition[0]?.cloudCover === "CLR" ||
-            weather.skyCondition[0]?.altitude === null) &&
+          weather.skyCondition[0]?.cloudCover === "CLR" &&
           (!weather.skyCondition[1] || !weather.skyCondition[1].cloudCover) &&
           (!weather.skyCondition[2] || !weather.skyCondition[2].cloudCover)
         ) {
@@ -1094,8 +1152,8 @@ const WindSpeedProvider = ({ children }) => {
           return;
         }
 
-        if (res.id === "wind" || res.id === "weather") {
-          disconnect(currentSocket);
+        if (res.id === "weather") {
+          setWeatherError("Invalid weather report");
         }
       };
 
@@ -1207,22 +1265,24 @@ const WindSpeedProvider = ({ children }) => {
         speed,
         gustSpeed,
         direction,
-        metar,
-        temp,
-        tempC,
+        // Keep the last valid weather internally, but never display it as
+        // current after a report failure (especially a previous Clear Sky).
+        metar: weatherError ? null : metar,
+        temp: weatherError ? null : temp,
+        tempC: weatherError ? null : tempC,
         tempSetting,
         setTempSetting,
-        skyCondition1,
-        skyCondition2,
-        skyCondition3,
-        cloudCeiling1,
-        cloudCeiling2,
-        cloudCeiling3,
-        cloudCeilingM1,
-        cloudCeilingM2,
-        cloudCeilingM3,
-        metarAbbr,
-        metarDesc,
+        skyCondition1: weatherError ? "Unknown" : skyCondition1,
+        skyCondition2: weatherError ? "" : skyCondition2,
+        skyCondition3: weatherError ? "" : skyCondition3,
+        cloudCeiling1: weatherError ? "" : cloudCeiling1,
+        cloudCeiling2: weatherError ? "" : cloudCeiling2,
+        cloudCeiling3: weatherError ? "" : cloudCeiling3,
+        cloudCeilingM1: weatherError ? "" : cloudCeilingM1,
+        cloudCeilingM2: weatherError ? "" : cloudCeilingM2,
+        cloudCeilingM3: weatherError ? "" : cloudCeilingM3,
+        metarAbbr: weatherError ? "Unknown" : metarAbbr,
+        metarDesc: weatherError ? "" : metarDesc,
         gustData,
         gustHistoryStatus,
         historyStatus,
@@ -1236,10 +1296,10 @@ const WindSpeedProvider = ({ children }) => {
         speeds,
         temps,
         received,
-        pressure,
-        visibility,
-        densityAlt,
-        dewPoint,
+        pressure: weatherError ? null : pressure,
+        visibility: weatherError ? null : visibility,
+        densityAlt: weatherError ? null : densityAlt,
+        dewPoint: weatherError ? null : dewPoint,
         sunset,
         sunrise,
         twilight,
