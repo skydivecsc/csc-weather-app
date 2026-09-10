@@ -39,6 +39,11 @@ const startIsolatedWeather = async (page, pathname = "/") => {
     sendInitialWind: true,
   };
   await page.clock.install({ time: state.now });
+  // Freeze the clock while the page is still blank. A future pause requested
+  // after rendering can become a past timestamp during a slow WebKit RPC;
+  // there are no application deadlines to expire before this navigation.
+  await page.clock.pauseAt(state.now + 60000);
+  state.now = await page.evaluate(() => Date.now());
   // Only the local Vite server reaches the network. All public API values and
   // the AWOS socket are synthetic; no request can collect real wind data.
   await page.route("**/*", (route) => {
@@ -109,6 +114,8 @@ const startIsolatedWeather = async (page, pathname = "/") => {
     });
   });
   await page.goto(pathname);
+  await page.clock.runFor(100);
+  state.now = await page.evaluate(() => Date.now());
   const status = page.locator(pathname === "/loadingarea"
     ? ".loading-wind-status" : ".livecomponent");
   const sky = pathname === "/"
@@ -116,10 +123,7 @@ const startIsolatedWeather = async (page, pathname = "/") => {
     : page.getByRole("row").filter({ hasText: "Sky Condition:" });
   await expect(status).toContainText("LIVE");
   await expect(sky).toContainText("Clear Sky");
-  // Let initial rendering/StrictMode settle before controlling time. Count
-  // the one subscribed socket, not a possible discarded StrictMode attempt.
-  await page.clock.pauseAt(await page.evaluate(() => Date.now() + 100));
-  state.now = await page.evaluate(() => Date.now());
+  // Count the one subscribed socket, not a discarded StrictMode attempt.
   state.sendInitialWind = false;
   const active = state.sockets.filter(({ subscribed, closed }) => subscribed && !closed);
   expect(active).toHaveLength(1);
