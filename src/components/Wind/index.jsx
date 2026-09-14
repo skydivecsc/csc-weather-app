@@ -133,17 +133,11 @@ function Wind() {
               ? cloudCeilingM1
               : null}{" "}
             {skyCondition2 ? <br /> : null}{" "}
-            {skyCondition2 && cloudCeiling2 && unitSetting === "true"
-              ? `${skyCondition2} ${cloudCeiling2}`
-              : skyCondition2 && cloudCeiling2 && unitSetting === "false"
-              ? `${skyCondition2} ${cloudCeilingM2}`
-              : null}{" "}
+            {skyCondition2}{" "}
+            {unitSetting === "true" ? cloudCeiling2 : cloudCeilingM2}{" "}
             {skyCondition3 ? <br /> : null}
-            {skyCondition3 && cloudCeiling3 && unitSetting === "true"
-              ? `${skyCondition3} ${cloudCeiling3}`
-              : skyCondition3 && cloudCeiling3 && unitSetting === "false"
-              ? `${skyCondition3} ${cloudCeilingM3}`
-              : null}
+            {skyCondition3}{" "}
+            {unitSetting === "true" ? cloudCeiling3 : cloudCeilingM3}
           </div>
         </div>
       </div>

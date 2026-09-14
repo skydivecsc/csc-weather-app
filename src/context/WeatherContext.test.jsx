@@ -43,6 +43,18 @@ function SocketProbe() {
     skyCondition1,
     cloudCeiling1,
     temp,
+    tempC,
+    densityAlt,
+    dewPoint,
+    pressure,
+    visibility,
+    metar,
+    metarAbbr,
+    metarDesc,
+    skyCondition2,
+    skyCondition3,
+    cloudCeiling2,
+    cloudCeiling3,
     weatherStatus,
     windSource,
     windStatus,
@@ -56,6 +68,15 @@ function SocketProbe() {
       <div data-testid="weather-time">{weatherStatus.measuredAt}</div>
       <div data-testid="sky">{skyCondition1} {cloudCeiling1}</div>
       <div data-testid="temperature">{temp ?? "Unknown"}</div>
+      <div data-testid="temperature-c">{tempC ?? "Unknown"}</div>
+      <div data-testid="density">{densityAlt ?? "Unknown"}</div>
+      <div data-testid="dew-point">{dewPoint ?? "Unknown"}</div>
+      <div data-testid="pressure">{pressure ?? "Unknown"}</div>
+      <div data-testid="visibility">{visibility ?? "Unknown"}</div>
+      <div data-testid="metar">{metar ?? "Unknown"}</div>
+      <div data-testid="present-weather">{metarDesc} {metarAbbr || "None"}</div>
+      <div data-testid="sky-two">{skyCondition2} {cloudCeiling2}</div>
+      <div data-testid="sky-three">{skyCondition3} {cloudCeiling3}</div>
       <div data-testid="wind-source">{windSource}</div>
       <div data-testid="wind-state">{windStatus}</div>
       <div data-testid="gust-history-state">{gustHistoryStatus.state}</div>
@@ -117,6 +138,10 @@ const sendWeather = (socket, temperature = 70, overrides = {}) => {
               presentWeather: null,
               skyCondition: [{ altitude: null, cloudCover: "CLR" }],
               temperature,
+              dewPoint: 50,
+              visibility: 10,
+              altimeterSetting: 30,
+              densityAltitude: 1000,
               ...overrides,
             },
           },
@@ -541,12 +566,10 @@ describe("WeatherProvider WebSocket lifecycle", () => {
   });
 
   it.each([
-    { skyCondition: [{ altitude: null, cloudCover: null }] },
-    { skyCondition: [{ altitude: null, cloudCover: "" }] },
-    { skyCondition: [] },
-    { presentWeather: {} },
     { receivedAt: "invalid" },
-  ])("isolates invalid weather %j and recovers on the same wind socket", async (invalid) => {
+    { receivedAt: undefined },
+    { receivedAt: new Date(Date.now() + 3600000).toISOString() },
+  ])("isolates an invalid weather envelope %j and recovers on the same wind socket", async (invalid) => {
     const { unmount } = renderProvider();
     const socket = socketInstances[0];
     openAndAcknowledge(socket);
@@ -578,6 +601,182 @@ describe("WeatherProvider WebSocket lifecycle", () => {
     expect(screen.getByTestId("sky")).toHaveTextContent("Clear Sky");
     expect(screen.getByTestId("temperature")).toHaveTextContent("72");
     expect(socketInstances).toHaveLength(1);
+    unmount();
+  });
+
+  it.each([
+    [{ altitude: null, cloudCover: null }],
+    [{ altitude: null, cloudCover: "" }],
+    [{ altitude: null, cloudCover: "__proto__" }],
+    [], null, {}, undefined,
+  ])("preserves other weather fields when the sky observation is %j", async (skyCondition) => {
+    const { unmount } = renderProvider();
+    const socket = socketInstances[0];
+    openAndAcknowledge(socket);
+    sendWind(socket);
+    sendWeather(socket);
+    await act(() => vi.advanceTimersByTimeAsync(1000));
+    sendWeather(socket, 72, { skyCondition });
+    expect(screen.getByTestId("sky")).toHaveTextContent("Unknown");
+    expect(screen.getByTestId("temperature")).toHaveTextContent("72");
+    expect(screen.getByTestId("dew-point")).toHaveTextContent("50");
+    expect(screen.getByTestId("visibility")).toHaveTextContent("10");
+    expect(screen.getByTestId("pressure")).toHaveTextContent("30");
+    expect(screen.getByTestId("density")).toHaveTextContent("1000");
+    expect(screen.getByTestId("present-weather")).toHaveTextContent("None");
+    expect(screen.getByTestId("weather-current")).toHaveTextContent("true");
+    expect(screen.getByTestId("weather-time")).toHaveTextContent(`${Date.now()}`);
+    expect(screen.getByTestId("socket-status")).toHaveTextContent("LIVE");
+    expect(socket.close).not.toHaveBeenCalled();
+    unmount();
+  });
+
+  it.each([
+    ["temperature", "temperature", null],
+    ["temperature", "temperature", "72"],
+    ["temperature", "temperature", Infinity],
+    ["dewPoint", "dew-point", {}],
+    ["dewPoint", "dew-point", false],
+    ["dewPoint", "dew-point", NaN],
+    ["visibility", "visibility", -1],
+    ["visibility", "visibility", undefined],
+    ["altimeterSetting", "pressure", 0],
+    ["altimeterSetting", "pressure", "bad"],
+    ["altimeterSetting", "pressure", ""],
+    ["altimeterSetting", "pressure", true],
+    ["altimeterSetting", "pressure", -1],
+    ["densityAltitude", "density", []],
+    ["densityAltitude", "density", null],
+    ["metar", "metar", null],
+    ["presentWeather", "present-weather", {}],
+    ["presentWeather", "present-weather", undefined],
+    ["presentWeather", "present-weather", ""],
+    ["presentWeather", "present-weather", "garbage"],
+    ["presentWeather", "present-weather", "ZZ"],
+  ])("masks only invalid %s (%s = %j) and recovers on a newer report", async (field, testId, value) => {
+    const { unmount } = renderProvider();
+    const socket = socketInstances[0];
+    openAndAcknowledge(socket);
+    sendWind(socket);
+    sendWeather(socket);
+    await act(() => vi.advanceTimersByTimeAsync(1000));
+    sendWeather(socket, 72, { [field]: value });
+    expect(screen.getByTestId(testId)).toHaveTextContent("Unknown");
+    expect(screen.getByTestId("sky")).toHaveTextContent("Clear Sky");
+    expect(screen.getByTestId("weather-current")).toHaveTextContent("true");
+    expect(screen.getByTestId("socket-status")).toHaveTextContent("LIVE");
+    if (field !== "temperature") {
+      expect(screen.getByTestId("temperature")).toHaveTextContent("72");
+    } else {
+      expect(screen.getByTestId("temperature-c")).toHaveTextContent("Unknown");
+    }
+    await act(() => vi.advanceTimersByTimeAsync(1000));
+    sendWeather(socket, 73);
+    expect(screen.getByTestId(testId)).not.toHaveTextContent("Unknown");
+    expect(socket.close).not.toHaveBeenCalled();
+    unmount();
+  });
+
+  it("retains zero and negative numeric readings without coercing missing values to zero", () => {
+    const { unmount } = renderProvider();
+    const socket = socketInstances[0];
+    openAndAcknowledge(socket);
+    sendWeather(socket, 0, { dewPoint: 0, visibility: 0, densityAltitude: -200 });
+    expect(screen.getByTestId("temperature")).toHaveTextContent(/^0$/);
+    expect(screen.getByTestId("temperature-c")).toHaveTextContent("-17.8");
+    expect(screen.getByTestId("dew-point")).toHaveTextContent(/^0$/);
+    expect(screen.getByTestId("visibility")).toHaveTextContent(/^0$/);
+    expect(screen.getByTestId("density")).toHaveTextContent("-200");
+    unmount();
+  });
+
+  it("keeps valid layers and marks a missing cloud altitude or malformed adjacent layer unknown", () => {
+    const { unmount } = renderProvider();
+    const socket = socketInstances[0];
+    openAndAcknowledge(socket);
+    sendWeather(socket, 70, { skyCondition: [
+      { cloudCover: "BKN", altitude: 3000 },
+      { cloudCover: "OVC", altitude: null },
+      { cloudCover: null, altitude: null },
+    ] });
+    expect(screen.getByTestId("sky")).toHaveTextContent("Broken 3000'");
+    expect(screen.getByTestId("sky-two")).toHaveTextContent("Overcast Unknown");
+    expect(screen.getByTestId("sky-three")).toHaveTextContent("Unknown");
+    expect(screen.getByTestId("weather-current")).toHaveTextContent("true");
+    unmount();
+  });
+
+  it("does not turn an inoperative present-weather sensor into None or retain previous descriptors", async () => {
+    const { unmount } = renderProvider();
+    const socket = socketInstances[0];
+    openAndAcknowledge(socket);
+    sendWeather(socket, 70, { presentWeather: "-RA" });
+    expect(screen.getByTestId("present-weather")).toHaveTextContent("Light Rain");
+    await act(() => vi.advanceTimersByTimeAsync(1000));
+    sendWeather(socket, 70, { presentWeather: "BR" });
+    expect(screen.getByTestId("present-weather")).toHaveTextContent(/^Mist$/);
+    await act(() => vi.advanceTimersByTimeAsync(1000));
+    sendWeather(socket, 70, {
+      metar: "KRPJ 141655Z AUTO 18010KT 10SM 21/12 A3000 RMK AO2 PWINO",
+      presentWeather: null,
+      skyCondition: [{ cloudCover: null, altitude: null }],
+    });
+    expect(screen.getByTestId("present-weather")).toHaveTextContent("Unknown");
+    expect(screen.getByTestId("sky")).toHaveTextContent("Unknown");
+    expect(screen.getByTestId("dew-point")).toHaveTextContent("50");
+    unmount();
+  });
+
+  it("preserves the valid fields in the September 14 upstream null-cloud payload", () => {
+    const { unmount } = renderProvider();
+    const socket = socketInstances[0];
+    openAndAcknowledge(socket);
+    sendWind(socket);
+    sendWeather(socket, 65, {
+      metar: "METAR KRPJ 141705Z AUTO RMK AO2 PWINO",
+      presentWeather: null,
+      dewPoint: 54,
+      visibility: 10,
+      altimeterSetting: "30.23",
+      densityAltitude: null,
+      skyCondition: [{ cloudCover: null, altitude: null }],
+    });
+    expect(screen.getByTestId("sky")).toHaveTextContent("Unknown");
+    expect(screen.getByTestId("present-weather")).toHaveTextContent("Unknown");
+    expect(screen.getByTestId("density")).toHaveTextContent("Unknown");
+    expect(screen.getByTestId("temperature")).toHaveTextContent("65");
+    expect(screen.getByTestId("dew-point")).toHaveTextContent("54");
+    expect(screen.getByTestId("visibility")).toHaveTextContent("10");
+    expect(screen.getByTestId("pressure")).toHaveTextContent("30.23");
+    expect(screen.getByTestId("socket-status")).toHaveTextContent("LIVE");
+    expect(socket.close).not.toHaveBeenCalled();
+    unmount();
+  });
+
+  it("does not let replayed partial reports overwrite fields or refresh the weather clock", async () => {
+    const { unmount } = renderProvider();
+    const socket = socketInstances[0];
+    openAndAcknowledge(socket);
+    sendWind(socket);
+    sendWeather(socket, 70);
+    const originalTime = Date.now();
+    await act(() => vi.advanceTimersByTimeAsync(1000));
+    sendWeather(socket, 71, { skyCondition: null });
+    const partialTime = Date.now();
+    for (const receivedAt of [originalTime, partialTime]) {
+      await act(() => vi.advanceTimersByTimeAsync(1000));
+      sendWeather(socket, 99, { receivedAt: new Date(receivedAt).toISOString() });
+      expect(screen.getByTestId("temperature")).toHaveTextContent("71");
+      expect(screen.getByTestId("sky")).toHaveTextContent("Unknown");
+      expect(screen.getByTestId("weather-time")).toHaveTextContent(`${partialTime}`);
+    }
+    for (let step = 0; step < 18; step += 1) {
+      sendWind(socket);
+      await act(() => vi.advanceTimersByTimeAsync(5000));
+    }
+    expect(screen.getByTestId("weather-status")).toHaveTextContent("stale");
+    expect(screen.getByTestId("weather-current")).toHaveTextContent("false");
+    expect(screen.getByTestId("socket-status")).toHaveTextContent("LIVE");
     unmount();
   });
 

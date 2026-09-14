@@ -13,6 +13,10 @@ const weatherFrame = (now, overrides = {}) => ({
     receivedAt: new Date(now).toISOString(),
     metar: "KAAA 010000Z CLR 70 50 A3000",
     temperature: 70,
+    dewPoint: 50,
+    altimeterSetting: 30.01,
+    densityAltitude: 1200,
+    visibility: 10,
     presentWeather: null,
     skyCondition: [{ cloudCover: "CLR", altitude: null }],
     ...overrides,
@@ -147,7 +151,7 @@ const startIsolatedWeather = async (page, pathname = "/") => {
   return { state, status, sky, connection, advance, send, assertSameSocket };
 };
 
-for (const pathname of ["/", "/loadingarea"]) {
+for (const pathname of ["/", "/detailed", "/loadingarea"]) {
   test(`${pathname} keeps fresh wind live through unknown cloud reports and same-socket recovery`, async ({ page }) => {
     const fixture = await startIsolatedWeather(page, pathname);
     const { state, status, sky, advance, send, assertSameSocket } = fixture;
@@ -162,6 +166,13 @@ for (const pathname of ["/", "/loadingarea"]) {
       }));
       await expect(sky).toContainText("Unknown");
       await expect(sky).not.toContainText("Clear Sky");
+      await expect(page.locator(".temp-content")).toContainText("70º F");
+      if (pathname === "/detailed") {
+        await expect(page.getByRole("row").filter({ hasText: "Dew Point:" })).toContainText("50ºF");
+        await expect(page.getByRole("row").filter({ hasText: "Visibility:" })).toContainText("10 SM");
+        await expect(page.getByRole("row").filter({ hasText: "Pressure:" })).toContainText('30.01" Hg');
+        await expect(page.getByRole("row").filter({ hasText: "Density Altitude:" })).toContainText("1200'");
+      }
       await send(windFrame(state.now, speed));
       await expect(status).toContainText("LIVE");
       await expect(status).not.toContainText("BACKUP");
@@ -176,6 +187,55 @@ for (const pathname of ["/", "/loadingarea"]) {
     assertSameSocket();
   });
 }
+
+test("detailed weather handles partial fields, inoperative sensors, zero readings and recovery independently", async ({ page }) => {
+  const { state, status, sky, advance, send, assertSameSocket } = await startIsolatedWeather(page, "/detailed");
+  const row = (label) => page.getByRole("row").filter({ hasText: `${label}:` });
+  await advance(1000);
+  await send(weatherFrame(state.now, {
+    metar: "METAR KRPJ 141705Z AUTO RMK AO2 PWINO",
+    temperature: 65,
+    dewPoint: 54,
+    altimeterSetting: "30.23",
+    skyCondition: [{ cloudCover: null, altitude: null }],
+    presentWeather: null,
+    densityAltitude: null,
+  }));
+  await expect(sky).toContainText("Unknown");
+  await expect(row("Present Weather")).toContainText("Unknown");
+  await expect(row("Density Altitude")).toContainText("Unknown");
+  await expect(row("Dew Point")).toContainText("54ºF");
+  await expect(row("Pressure")).toContainText('30.23" Hg');
+  await expect(row("Visibility")).toContainText("10 SM");
+
+  await advance(1000);
+  await send(weatherFrame(state.now, {
+    skyCondition: [
+      { cloudCover: "BKN", altitude: 3000 },
+      { cloudCover: null, altitude: null },
+      { cloudCover: "OVC", altitude: null },
+    ],
+    dewPoint: null, altimeterSetting: {}, visibility: -1, densityAltitude: null,
+    presentWeather: "ZZ",
+  }));
+  await expect(sky).toContainText("Broken 3000'");
+  await expect(sky).toContainText("Overcast Unknown");
+  for (const label of ["Dew Point", "Pressure", "Visibility", "Density Altitude", "Present Weather"]) {
+    await expect(row(label)).toContainText("Unknown");
+  }
+  await expect(page.getByText("Field Level", { exact: true })).toHaveCount(0);
+
+  await advance(1000);
+  await send(weatherFrame(state.now, { dewPoint: 0, visibility: 0, densityAltitude: 0 }));
+  await expect(sky).toContainText("Clear Sky");
+  await expect(row("Dew Point")).toContainText("0ºF");
+  await expect(row("Visibility")).toContainText("0.00 SM");
+  await expect(row("Density Altitude")).toContainText("Field Level");
+  await expect(row("Present Weather")).toContainText("None");
+  await expect(row("Pressure")).toContainText('30.01" Hg');
+  await expect(status).toContainText("LIVE");
+  assertSameSocket();
+});
 
 for (const [description, frame] of [
   ["GraphQL error", { id: "weather", type: "error", payload: [{ message: "Weather report missing" }] }],

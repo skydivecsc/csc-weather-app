@@ -162,23 +162,79 @@ const isWindReport = (wind) =>
     (Array.isArray(wind.variableDirection) &&
       wind.variableDirection.every(Number.isFinite)));
 
-const isSkyCondition = (condition) =>
-  condition &&
-  typeof condition === "object" &&
-  typeof condition.cloudCover === "string" &&
-  condition.cloudCover.trim().length > 0 &&
-  isNullableFiniteNumber(condition.altitude);
-
+// Timestamp validity belongs to the report envelope. Each observation can be
+// absent independently (for example a failed cloud sensor alongside valid
+// pressure), so one missing observation must not discard the other readings.
 const isWeatherReport = (weather) =>
   weather &&
-  typeof weather.receivedAt === "string" &&
-  typeof weather.metar === "string" &&
-  Number.isFinite(weather.temperature) &&
-  (weather.presentWeather === null ||
-    typeof weather.presentWeather === "string") &&
-  Array.isArray(weather.skyCondition) &&
-    weather.skyCondition.length > 0 &&
-    weather.skyCondition.slice(0, 3).every(isSkyCondition);
+  typeof weather === "object" &&
+  !Array.isArray(weather) &&
+  typeof weather.receivedAt === "string";
+
+const weatherNumber = (value, minimum = -Infinity) =>
+  Number.isFinite(value) && value >= minimum ? value : null;
+
+const normalizeSkyLayer = (condition, index) => {
+  if (condition === undefined && index > 0) {
+    return { description: "", feet: "", meters: "" };
+  }
+  const skyConditions = {
+    CLR: "Clear Sky",
+    SKC: "Clear Sky",
+    FEW: "Few Clouds",
+    SCT: "Scattered",
+    BKN: "Broken",
+    OVC: "Overcast",
+    VV: "Vertical Visibility",
+  };
+  const cloudCover = typeof condition?.cloudCover === "string"
+    ? condition.cloudCover.trim()
+    : null;
+  const description = Object.hasOwn(skyConditions, cloudCover)
+    ? skyConditions[cloudCover]
+    : "Unknown";
+  const altitude = weatherNumber(condition?.altitude, 0);
+  if (cloudCover === "CLR" || cloudCover === "SKC") {
+    return { description, feet: "", meters: "" };
+  }
+  return {
+    description,
+    feet: altitude === null ? (description === "Unknown" ? "" : "Unknown") : `${altitude}'`,
+    meters: altitude === null ? (description === "Unknown" ? "" : "Unknown") : `${(altitude / 3.28).toFixed(0)}M`,
+  };
+};
+
+const normalizePresentWeather = (weather) => {
+  // Explicit null means no present-weather phenomena in the upstream schema,
+  // except when its METAR says the present-weather sensor is inoperative.
+  if (weather.presentWeather === null) {
+    return typeof weather.metar === "string" && /\bPWINO\b/.test(weather.metar)
+      ? "Unknown"
+      : "";
+  }
+  if (typeof weather.presentWeather !== "string" || !weather.presentWeather.trim()) {
+    return "Unknown";
+  }
+  const codes = {
+    VC: "Vicinity", MI: "Shallow", PR: "Partial", BC: "Patches",
+    DR: "Low Drifting", BL: "Blowing", FZ: "Freezing",
+    BR: "Mist", TS: "Thunderstorms", SH: "Shower", DZ: "Drizzle",
+    RA: "Rain", UP: "Precipitation", SN: "Snow", PO: "DUST DEVILS",
+    SS: "Sand Storm", GR: "Hail", FG: "Fog", FU: "Smoke", HZ: "Haze",
+    FC: "Tornado", PL: "Ice Pellets", GS: "Small Hail", SG: "Snow Grains",
+    IC: "Ice Crystals", VA: "Volcanic Ash", DU: "Dust", SA: "Sand",
+    PY: "Spray", SQ: "Squalls", DS: "Dust Storm",
+  };
+  const descriptions = [];
+  for (const token of weather.presentWeather.trim().split(/\s+/)) {
+    if (!/^[+-]?(?:[A-Z]{2})+$/.test(token)) return "Unknown";
+    const intensity = token[0] === "-" ? "Light" : token[0] === "+" ? "Heavy" : "";
+    const observations = token.replace(/^[+-]/, "").match(/.{2}/g);
+    if (observations.some((code) => !Object.hasOwn(codes, code))) return "Unknown";
+    descriptions.push([intensity, ...observations.map((code) => codes[code])].filter(Boolean).join(" "));
+  }
+  return descriptions.join(", ");
+};
 
 const normalizeHistoryRow = (row, now) => {
   if (!row || typeof row !== "object") {
@@ -276,7 +332,7 @@ const WindSpeedProvider = ({ children }) => {
   const [metar, setMetar] = useState(null);
   const [temp, setTemp] = useState(null);
   const [tempC, setTempC] = useState(null);
-  const [skyCondition1, setSkyCondition1] = useState("");
+  const [skyCondition1, setSkyCondition1] = useState("Unknown");
   const [skyCondition2, setSkyCondition2] = useState("");
   const [skyCondition3, setSkyCondition3] = useState("");
   const [cloudCeiling1, setCloudCeiling1] = useState("");
@@ -285,8 +341,7 @@ const WindSpeedProvider = ({ children }) => {
   const [cloudCeilingM1, setCloudCeilingM1] = useState("");
   const [cloudCeilingM2, setCloudCeilingM2] = useState("");
   const [cloudCeilingM3, setCloudCeilingM3] = useState("");
-  const [metarAbbr, setMetarAbbr] = useState("");
-  const [metarDesc, setMetarDesc] = useState("");
+  const [metarAbbr, setMetarAbbr] = useState("Unknown");
   const [gustData, setGustData] = useState([]);
   const [darkTheme, setDarkTheme] = useState(
     localStorage.getItem("darkTheme") || "true"
@@ -1021,134 +1076,41 @@ const WindSpeedProvider = ({ children }) => {
           setWeatherMeasuredAt(measuredAt);
           setStatusClock(currentTime());
 
-          setPressure(weather?.altimeterSetting || null);
-          setDensityAlt(weather?.densityAltitude || null);
-          setVisibility(weather?.visibility || null);
-          setDewPoint(weather?.dewPoint || null);
+          // Replace every field from this observation, rather than mixing a
+          // previous valid value with the new report's timestamp.
+          // The upstream GraphQL altimeter field is a decimal string; unlike
+          // its other numeric observations, it needs explicit normalization.
+          const pressure = weatherNumber(toFiniteNumber(weather.altimeterSetting), 0);
+          setPressure(pressure === 0 ? null : pressure);
+          setDensityAlt(weatherNumber(weather.densityAltitude));
+          setVisibility(weatherNumber(weather.visibility, 0));
+          setDewPoint(weatherNumber(weather.dewPoint));
 
-          const metArr = weather.metar.split(" ");
-          metArr.pop();
-          metArr.pop();
-          metArr.pop();
-          metArr.shift();
-          const formattedMetar = metArr.join(" ");
-          setMetar(formattedMetar);
+          if (typeof weather.metar === "string" && weather.metar.trim()) {
+            const metArr = weather.metar.trim().split(/\s+/);
+            setMetar(metArr.slice(1, -3).join(" ") || null);
+          } else {
+            setMetar(null);
+          }
 
-          setTemp(weather.temperature);
-          setTempC(((weather.temperature - 32) / 1.8).toFixed(1));
+          const temperature = weatherNumber(weather.temperature);
+          setTemp(temperature);
+          setTempC(temperature === null ? null : ((temperature - 32) / 1.8).toFixed(1));
+          setMetarAbbr(normalizePresentWeather(weather));
 
-          setCloudCeiling1(`${weather?.skyCondition[0]?.altitude}'`);
-          setCloudCeilingM1(
-            `${(weather?.skyCondition[0]?.altitude / 3.28).toFixed(0)}M`
+          const layers = Array.isArray(weather.skyCondition) ? weather.skyCondition : [];
+          const [first, second, third] = [0, 1, 2].map((index) =>
+            normalizeSkyLayer(layers[index], index)
           );
-
-          if (weather.skyCondition[0].altitude === null) {
-            setCloudCeiling1("");
-            setCloudCeilingM1("");
-          }
-
-        setCloudCeiling2(`${weather?.skyCondition[1]?.altitude}'`);
-        setCloudCeilingM2(
-          `${(weather?.skyCondition[1]?.altitude / 3.28).toFixed(0)}M`
-        );
-
-        if (!weather.skyCondition[1]) {
-          setCloudCeiling2("");
-          setCloudCeilingM2("");
-          setSkyCondition2("");
-        }
-
-        setCloudCeiling3(`${weather?.skyCondition[2]?.altitude}'`);
-        setCloudCeilingM3(
-          `${(weather?.skyCondition[2]?.altitude / 3.28).toFixed(0)}M`
-        );
-
-        if (!weather.skyCondition[2]) {
-          setCloudCeiling3("");
-          setCloudCeilingM3("");
-          setSkyCondition3("");
-        }
-
-        if (!weather.presentWeather) {
-          setMetarAbbr("");
-          setMetarDesc("");
-        }
-
-        const metarDescriptors = {
-          "-": "Light",
-          "+": "Heavy",
-          VC: "Vicinity",
-          MI: "Shallow",
-          PR: "Partial",
-          BC: "Patches",
-          DR: "Low Drifting",
-          BL: "Blowing",
-          FZ: "Freezing",
-        };
-
-        const metarAbbreviators = {
-          BR: "Mist",
-          TS: "Thunderstorms",
-          SH: "Shower",
-          DZ: "Drizzle",
-          RA: "Rain",
-          UP: "Precipitation",
-          SN: "Snow",
-          PO: "DUST DEVILS",
-          SS: "Sand Storm",
-          GR: "Hail",
-          FG: "Fog",
-          FU: "Smoke",
-          HZ: "Haze",
-          FC: "Tornado",
-        };
-
-        if (weather.presentWeather) {
-          for (const condition of Object.keys(metarDescriptors)) {
-            if (weather.presentWeather.includes(condition)) {
-              setMetarDesc(metarDescriptors[condition]);
-            }
-          }
-
-          for (const condition of Object.keys(metarAbbreviators)) {
-            if (weather.presentWeather.includes(condition)) {
-              setMetarAbbr(metarAbbreviators[condition]);
-            }
-          }
-        }
-
-        const skyConditions = {
-          CLR: "Clear Sky",
-          SCT: "Scattered",
-          BKN: "Broken",
-          OVC: "Overcast",
-        };
-
-        setSkyCondition1(
-          skyConditions[weather?.skyCondition[0]?.cloudCover] || "Unknown"
-        );
-        setSkyCondition2(
-          skyConditions[weather?.skyCondition[1]?.cloudCover] || ""
-        );
-        setSkyCondition3(
-          skyConditions[weather?.skyCondition[2]?.cloudCover] || ""
-        );
-
-        if (
-          weather.skyCondition[0]?.cloudCover === "CLR" &&
-          (!weather.skyCondition[1] || !weather.skyCondition[1].cloudCover) &&
-          (!weather.skyCondition[2] || !weather.skyCondition[2].cloudCover)
-        ) {
-          setSkyCondition1("Clear Sky");
-          setCloudCeiling1("");
-          setCloudCeilingM1("");
-          setSkyCondition2("");
-          setCloudCeiling2("");
-          setCloudCeilingM2("");
-          setSkyCondition3("");
-          setCloudCeiling3("");
-          setCloudCeilingM3("");
-        }
+          setSkyCondition1(first.description);
+          setCloudCeiling1(first.feet);
+          setCloudCeilingM1(first.meters);
+          setSkyCondition2(second.description);
+          setCloudCeiling2(second.feet);
+          setCloudCeilingM2(second.meters);
+          setSkyCondition3(third.description);
+          setCloudCeiling3(third.feet);
+          setCloudCeilingM3(third.meters);
           return;
         }
 
@@ -1282,7 +1244,7 @@ const WindSpeedProvider = ({ children }) => {
         cloudCeilingM2: weatherError ? "" : cloudCeilingM2,
         cloudCeilingM3: weatherError ? "" : cloudCeilingM3,
         metarAbbr: weatherError ? "Unknown" : metarAbbr,
-        metarDesc: weatherError ? "" : metarDesc,
+        metarDesc: "",
         gustData,
         gustHistoryStatus,
         historyStatus,

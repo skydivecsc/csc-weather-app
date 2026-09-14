@@ -57,6 +57,44 @@ const renderDetailed = (overrides = {}) =>
   );
 
 describe("Detailed wind safety presentation", () => {
+  it("shows valid weather independently when the current cloud report is unknown", () => {
+    renderDetailed({
+      weatherStatus: { error: null, state: "live" },
+      densityAlt: null,
+      dewPoint: 50,
+      pressure: 30.01,
+      visibility: 10,
+      skyCondition1: "Unknown",
+      metarAbbr: "Unknown",
+    });
+    expect(screen.getByText("Density Altitude:").closest("tr")).toHaveTextContent("Unknown");
+    expect(screen.getByText("Present Weather:").closest("tr")).toHaveTextContent("Unknown");
+    expect(screen.getByText("Sky Condition:").closest("tr")).toHaveTextContent("Unknown");
+    expect(screen.getByText("Visibility:").closest("tr")).toHaveTextContent("10 SM");
+    expect(screen.getByText("Dew Point:").closest("tr")).toHaveTextContent("10.0ºC");
+    expect(screen.getByText("Pressure:").closest("tr")).toHaveTextContent('30.01" Hg');
+    expect(screen.queryByText("Field Level")).not.toBeInTheDocument();
+  });
+
+  it("shows genuine zero readings and field-level density altitude", () => {
+    renderDetailed({ densityAlt: 0, dewPoint: 0, visibility: 0, tempSetting: "true" });
+    expect(screen.getByText("Density Altitude:").closest("tr")).toHaveTextContent("Field Level");
+    expect(screen.getByText("Dew Point:").closest("tr")).toHaveTextContent("0ºF");
+    expect(screen.getByText("Visibility:").closest("tr")).toHaveTextContent("0.00 SM");
+  });
+
+  it("shows valid later cloud layers even when another layer is missing data", () => {
+    renderDetailed({
+      skyCondition1: "Broken", cloudCeiling1: "3000'",
+      skyCondition2: "Unknown", cloudCeiling2: "",
+      skyCondition3: "Overcast", cloudCeiling3: "6000'",
+    });
+    const sky = screen.getByText("Sky Condition:").closest("tr");
+    expect(sky).toHaveTextContent("Broken 3000'");
+    expect(sky).toHaveTextContent("Unknown");
+    expect(sky).toHaveTextContent("Overcast 6000'");
+  });
+
   it("does not describe unavailable weather as field-level density altitude or no weather", () => {
     renderDetailed({
       weatherStatus: { error: "Invalid weather report", state: "unavailable" },

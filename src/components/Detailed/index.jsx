@@ -321,12 +321,12 @@ function DetailedPage() {
           <tr className={darkTheme === "true" ? "table" : "table-light"}>
             <td>Density Altitude:</td>
             <td>
-              {weatherStatus?.error
+              {weatherStatus?.error || densityAlt === null || densityAlt === undefined
                 ? "Unknown"
-                : densityAlt && unitSetting === "true"
-                ? densityAlt + "'"
-                : !densityAlt
+                : densityAlt === 0
                 ? "Field Level"
+                : unitSetting === "true"
+                ? densityAlt + "'"
                 : (densityAlt / 3.28).toFixed(0) + "M"}
             </td>
           </tr>
@@ -354,17 +354,11 @@ function DetailedPage() {
                     ? cloudCeilingM1
                     : null}{" "}
                   {skyCondition2 ? <br /> : null}{" "}
-                  {skyCondition2 && cloudCeiling2 && unitSetting === "true"
-                    ? `${skyCondition2} ${cloudCeiling2}`
-                    : skyCondition2 && cloudCeiling2 && unitSetting === "false"
-                    ? `${skyCondition2} ${cloudCeilingM2}`
-                    : null}{" "}
+                  {skyCondition2}{" "}
+                  {unitSetting === "true" ? cloudCeiling2 : cloudCeilingM2}{" "}
                   {skyCondition3 ? <br /> : null}
-                  {skyCondition3 && cloudCeiling3 && unitSetting === "true"
-                    ? `${skyCondition3} ${cloudCeiling3}`
-                    : skyCondition3 && cloudCeiling3 && unitSetting === "false"
-                    ? `${skyCondition3} ${cloudCeilingM3}`
-                    : null}
+                  {skyCondition3}{" "}
+                  {unitSetting === "true" ? cloudCeiling3 : cloudCeilingM3}
                 </>
               )}
             </td>
@@ -372,7 +366,7 @@ function DetailedPage() {
           <tr className={darkTheme === "true" ? "table" : "table-light"}>
             <td>Visibility:</td>
             <td>
-              {!visibility ? (
+              {visibility === null || visibility === undefined ? (
                 "Unknown"
               ) : (
                 <>{visibility < 1 ? visibility?.toFixed(2) : visibility} SM</>
@@ -382,7 +376,7 @@ function DetailedPage() {
           <tr className={darkTheme === "true" ? "table" : "table-light"}>
             <td>Dew Point:</td>
             <td>
-              {!dewPoint
+              {dewPoint === null || dewPoint === undefined
                 ? "Unknown"
                 : tempSetting === "true"
                 ? dewPoint + "ºF"
